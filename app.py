@@ -18,7 +18,7 @@ def cargar_datos():
 
 # --- INTERFAZ STREAMLIT ---
 st.set_page_config(page_title="Ciencia de Datos Estancia", page_icon="📊", layout="wide")
-st.title("Mapa de Calor - Ventas")
+st.title("Dashboard Avellaneda")
 
 # Cargar datos automáticamente
 try:
@@ -160,5 +160,6 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+
 
 
