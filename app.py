@@ -17,8 +17,8 @@ def cargar_datos():
     return df
 
 # --- INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="Ciencia de Datos Estancia", page_icon="📊", layout="wide")
-st.title("Dashboard Avellaneda")
+st.set_page_config(page_title="Análisis Fiambrería", page_icon="📊", layout="wide")
+st.title("📊 Análisis de Ventas - Fiambrería")
 
 # Cargar datos automáticamente
 try:
@@ -27,9 +27,9 @@ try:
     # Mostrar info básica
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Registros", f"{len(df_limpio):,}")
+        st.metric("📦 Total Registros", f"{len(df_limpio):,}")
     with col2:
-        st.metric("Productos Únicos", f"{df_limpio['producto'].nunique():,}")
+        st.metric("🏷️ Productos Únicos", f"{df_limpio['producto'].nunique():,}")
     with col3:
         fecha_inicio = df_limpio['fecha_hora'].min().strftime('%d/%m/%Y')
         fecha_fin = df_limpio['fecha_hora'].max().strftime('%d/%m/%Y')
@@ -154,12 +154,169 @@ try:
         with col4:
             st.metric("📦 Total Vendido", f"{int(total_vendido):,} unidades", help="Total de unidades en el período")
         
+        st.divider()
+        
+        # --- MATRIZ BCG ---
+        st.subheader("📊 Matriz BCG - Boston Consulting Group")
+        st.caption("Clasifica tus productos según participación de mercado y crecimiento")
+        
+        # Calcular participación de mercado (% de ventas de cada producto)
+        ventas_por_producto = df_analisis.groupby('producto')['cantidad'].sum().reset_index()
+        ventas_por_producto['participacion'] = (ventas_por_producto['cantidad'] / ventas_por_producto['cantidad'].sum()) * 100
+        
+        # Calcular tasa de crecimiento
+        if periodo_seleccionado == '📊 Todos los datos':
+            # Comparar primera mitad vs segunda mitad
+            fecha_mitad = df_analisis['fecha_hora'].min() + (df_analisis['fecha_hora'].max() - df_analisis['fecha_hora'].min()) / 2
+            df_periodo1 = df_analisis[df_analisis['fecha_hora'] < fecha_mitad]
+            df_periodo2 = df_analisis[df_analisis['fecha_hora'] >= fecha_mitad]
+            periodo_comparacion = "Primera mitad vs Segunda mitad"
+        else:
+            # Comparar mes seleccionado vs mes anterior
+            mes_actual = mes_num_sel
+            año_actual = año_sel
+            
+            # Calcular mes anterior
+            if mes_actual == 1:
+                mes_anterior = 12
+                año_anterior = año_actual - 1
+            else:
+                mes_anterior = mes_actual - 1
+                año_anterior = año_actual
+            
+            df_periodo1 = df_temp[(df_temp['mes_num'] == mes_anterior) & (df_temp['año'] == año_anterior)]
+            df_periodo2 = df_analisis.copy()
+            mes_ant_nombre = meses_español[mes_anterior]
+            periodo_comparacion = f"{mes_ant_nombre} {año_anterior} vs {titulo_periodo}"
+        
+        # Ventas por producto en cada período
+        ventas_p1 = df_periodo1.groupby('producto')['cantidad'].sum()
+        ventas_p2 = df_periodo2.groupby('producto')['cantidad'].sum()
+        
+        # Calcular crecimiento (manejar productos nuevos o sin ventas previas)
+        crecimiento = pd.DataFrame({
+            'producto': ventas_p2.index,
+            'ventas_periodo1': ventas_p2.index.map(lambda x: ventas_p1.get(x, 0)),
+            'ventas_periodo2': ventas_p2.values
+        })
+        
+        # Calcular % de crecimiento
+        crecimiento['tasa_crecimiento'] = crecimiento.apply(
+            lambda row: ((row['ventas_periodo2'] - row['ventas_periodo1']) / row['ventas_periodo1'] * 100) 
+            if row['ventas_periodo1'] > 0 else 100,  # Si no había ventas antes, es 100% de crecimiento
+            axis=1
+        )
+        
+        # Unir con participación de mercado
+        bcg_data = ventas_por_producto.merge(crecimiento[['producto', 'tasa_crecimiento']], on='producto')
+        
+        # Calcular promedios para los ejes
+        participacion_media = bcg_data['participacion'].median()
+        crecimiento_medio = bcg_data['tasa_crecimiento'].median()
+        
+        # Clasificar productos en cuadrantes
+        def clasificar_bcg(row):
+            if row['participacion'] >= participacion_media and row['tasa_crecimiento'] >= crecimiento_medio:
+                return '⭐ Estrella'
+            elif row['participacion'] >= participacion_media and row['tasa_crecimiento'] < crecimiento_medio:
+                return '🐄 Vaca Lechera'
+            elif row['participacion'] < participacion_media and row['tasa_crecimiento'] >= crecimiento_medio:
+                return '❓ Interrogante'
+            else:
+                return '🐕 Perro'
+        
+        bcg_data['categoria'] = bcg_data.apply(clasificar_bcg, axis=1)
+        
+        # Crear scatter plot
+        import plotly.express as px
+        
+        fig_bcg = px.scatter(
+            bcg_data,
+            x='participacion',
+            y='tasa_crecimiento',
+            size='cantidad',
+            color='categoria',
+            hover_name='producto',
+            hover_data={
+                'participacion': ':.2f',
+                'tasa_crecimiento': ':.1f',
+                'cantidad': ':,',
+                'categoria': True
+            },
+            labels={
+                'participacion': 'Participación de Mercado (%)',
+                'tasa_crecimiento': 'Tasa de Crecimiento (%)',
+                'categoria': 'Categoría'
+            },
+            color_discrete_map={
+                '⭐ Estrella': '#FFD700',
+                '🐄 Vaca Lechera': '#90EE90',
+                '❓ Interrogante': '#87CEEB',
+                '🐕 Perro': '#D3D3D3'
+            },
+            height=600
+        )
+        
+        # Agregar líneas de división
+        fig_bcg.add_hline(y=crecimiento_medio, line_dash="dash", line_color="gray", opacity=0.5)
+        fig_bcg.add_vline(x=participacion_media, line_dash="dash", line_color="gray", opacity=0.5)
+        
+        # Agregar anotaciones de cuadrantes
+        fig_bcg.add_annotation(x=bcg_data['participacion'].max() * 0.9, y=bcg_data['tasa_crecimiento'].max() * 0.9,
+                              text="⭐ ESTRELLAS", showarrow=False, font=dict(size=14, color="gray"))
+        fig_bcg.add_annotation(x=bcg_data['participacion'].max() * 0.9, y=bcg_data['tasa_crecimiento'].min() * 0.9,
+                              text="🐄 VACAS", showarrow=False, font=dict(size=14, color="gray"))
+        fig_bcg.add_annotation(x=bcg_data['participacion'].min() * 1.1, y=bcg_data['tasa_crecimiento'].max() * 0.9,
+                              text="❓ INTERROGANTES", showarrow=False, font=dict(size=14, color="gray"))
+        fig_bcg.add_annotation(x=bcg_data['participacion'].min() * 1.1, y=bcg_data['tasa_crecimiento'].min() * 0.9,
+                              text="🐕 PERROS", showarrow=False, font=dict(size=14, color="gray"))
+        
+        fig_bcg.update_layout(showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        
+        st.plotly_chart(fig_bcg, use_container_width=True)
+        
+        # Info sobre el análisis
+        st.info(f"📊 **Comparación:** {periodo_comparacion}")
+        
+        # Tabla resumen por categoría
+        st.markdown("### 📋 Resumen por Categoría")
+        
+        resumen_categorias = bcg_data.groupby('categoria').agg({
+            'producto': 'count',
+            'cantidad': 'sum',
+            'participacion': 'sum'
+        }).reset_index()
+        resumen_categorias.columns = ['Categoría', 'Cantidad de Productos', 'Unidades Vendidas', 'Participación Total (%)']
+        resumen_categorias['Participación Total (%)'] = resumen_categorias['Participación Total (%)'].round(2)
+        
+        st.dataframe(resumen_categorias, use_container_width=True, hide_index=True)
+        
+        # Top productos por categoría
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### ⭐ Top 5 Estrellas")
+            estrellas = bcg_data[bcg_data['categoria'] == '⭐ Estrella'].nlargest(5, 'cantidad')[['producto', 'cantidad', 'tasa_crecimiento']]
+            if not estrellas.empty:
+                estrellas['tasa_crecimiento'] = estrellas['tasa_crecimiento'].round(1).astype(str) + '%'
+                st.dataframe(estrellas, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay productos en esta categoría")
+        
+        with col2:
+            st.markdown("#### 🐕 Top 5 Perros (considerar eliminar)")
+            perros = bcg_data[bcg_data['categoria'] == '🐕 Perro'].nsmallest(5, 'cantidad')[['producto', 'cantidad', 'tasa_crecimiento']]
+            if not perros.empty:
+                perros['tasa_crecimiento'] = perros['tasa_crecimiento'].round(1).astype(str) + '%'
+                st.dataframe(perros, use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay productos en esta categoría")
+        
     else:
         st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
 
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
-
 
 
