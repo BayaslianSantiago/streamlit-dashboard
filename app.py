@@ -142,8 +142,10 @@ try:
         st.markdown("### 📆 3. Estacionalidad Mensual")
         st.caption("Tendencias de ventas a lo largo de los meses")
         
-        # Ventas por mes
+        # Ventas por mes - solo meses con datos
         ventas_mes = df_temp.groupby('mes_num')['cantidad'].sum().reset_index()
+        ventas_mes = ventas_mes[ventas_mes['cantidad'] > 0]  # Filtrar meses sin datos
+        
         meses_español = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
                         7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
         ventas_mes['mes'] = ventas_mes['mes_num'].map(meses_español)
@@ -188,3 +190,4 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+
