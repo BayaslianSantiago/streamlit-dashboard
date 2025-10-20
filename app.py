@@ -170,4 +170,3 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
-
