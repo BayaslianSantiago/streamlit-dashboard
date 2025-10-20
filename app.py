@@ -17,8 +17,8 @@ def cargar_datos():
     return df
 
 # --- INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="Análisis Fiambrería", page_icon="📊", layout="wide")
-st.title("📊 Análisis de Ventas - Fiambrería")
+st.set_page_config(page_title="Ciencia de Datos Estancia", page_icon="📊", layout="wide")
+st.title("Mapa de Calor - Ventas")
 
 # Cargar datos automáticamente
 try:
@@ -27,9 +27,9 @@ try:
     # Mostrar info básica
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("📦 Total Registros", f"{len(df_limpio):,}")
+        st.metric("Total Registros", f"{len(df_limpio):,}")
     with col2:
-        st.metric("🏷️ Productos Únicos", f"{df_limpio['producto'].nunique():,}")
+        st.metric("Productos Únicos", f"{df_limpio['producto'].nunique():,}")
     with col3:
         fecha_inicio = df_limpio['fecha_hora'].min().strftime('%d/%m/%Y')
         fecha_fin = df_limpio['fecha_hora'].max().strftime('%d/%m/%Y')
@@ -160,4 +160,5 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+
 
