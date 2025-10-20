@@ -14,8 +14,8 @@ def cargar_datos():
     return df
 
 # --- INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="Análisis Estancia", page_icon="📊", layout="wide")
-st.title("📊 Ciencia de Datos Estancia")
+st.set_page_config(page_title="Análisis Fiambrería", page_icon="📊", layout="wide")
+st.title("📊 Análisis de Ventas - Fiambrería")
 
 # Cargar datos automáticamente
 try:
@@ -163,26 +163,6 @@ try:
         fig_meses.update_traces(line_color='#FF6B6B', line_width=3, marker=dict(size=10))
         fig_meses.update_layout(height=400)
         st.plotly_chart(fig_meses, use_container_width=True)
-        
-        # Top productos por mes
-        st.markdown("#### 🔍 Productos más vendidos por mes")
-        mes_seleccionado = st.selectbox("Selecciona un mes", ventas_mes['mes'].tolist())
-        
-        mes_num = [k for k, v in meses_español.items() if v == mes_seleccionado][0]
-        df_mes = df_temp[df_temp['mes_num'] == mes_num]
-        
-        top_productos_mes = df_mes.groupby('producto')['cantidad'].sum().nlargest(10).reset_index()
-        
-        fig_top_mes = px.bar(
-            top_productos_mes,
-            x='cantidad',
-            y='producto',
-            orientation='h',
-            title=f'Top 10 Productos en {mes_seleccionado}',
-            labels={'cantidad': 'Unidades', 'producto': 'Producto'}
-        )
-        
-        st.plotly_chart(fig_top_mes, use_container_width=True)
         
     else:
         st.warning("No hay datos disponibles para análisis temporal.")
