@@ -230,14 +230,25 @@ try:
         # Crear scatter plot
         import plotly.express as px
         
+        # Tomar solo top productos para mejor visualización (opcional)
+        # Si hay muchos productos, filtrar los más relevantes
+        if len(bcg_data) > 50:
+            # Tomar top 50 por cantidad vendida
+            bcg_data_plot = bcg_data.nlargest(50, 'cantidad')
+            st.info(f"📌 Mostrando los 50 productos más vendidos de {len(bcg_data)} totales para mejor visualización")
+        else:
+            bcg_data_plot = bcg_data
+        
         fig_bcg = px.scatter(
-            bcg_data,
+            bcg_data_plot,
             x='participacion',
             y='tasa_crecimiento',
             size='cantidad',
             color='categoria',
+            text='producto',  # Agregar texto
             hover_name='producto',
             hover_data={
+                'producto': False,  # No duplicar en hover
                 'participacion': ':.2f',
                 'tasa_crecimiento': ':.1f',
                 'cantidad': ':,',
@@ -250,28 +261,90 @@ try:
             },
             color_discrete_map={
                 '⭐ Estrella': '#FFD700',
-                '🐄 Vaca Lechera': '#90EE90',
-                '❓ Interrogante': '#87CEEB',
-                '🐕 Perro': '#D3D3D3'
+                '🐄 Vaca Lechera': '#32CD32',
+                '❓ Interrogante': '#1E90FF',
+                '🐕 Perro': '#DC143C'
             },
-            height=600
+            height=700
         )
         
-        # Agregar líneas de división
-        fig_bcg.add_hline(y=crecimiento_medio, line_dash="dash", line_color="gray", opacity=0.5)
-        fig_bcg.add_vline(x=participacion_media, line_dash="dash", line_color="gray", opacity=0.5)
+        # Configurar el texto en las burbujas (solo para productos grandes)
+        fig_bcg.update_traces(
+            textposition='top center',
+            textfont=dict(size=9, color='black'),
+            marker=dict(line=dict(width=1, color='white'), sizemode='diameter', sizemin=5)
+        )
         
-        # Agregar anotaciones de cuadrantes
-        fig_bcg.add_annotation(x=bcg_data['participacion'].max() * 0.9, y=bcg_data['tasa_crecimiento'].max() * 0.9,
-                              text="⭐ ESTRELLAS", showarrow=False, font=dict(size=14, color="gray"))
-        fig_bcg.add_annotation(x=bcg_data['participacion'].max() * 0.9, y=bcg_data['tasa_crecimiento'].min() * 0.9,
-                              text="🐄 VACAS", showarrow=False, font=dict(size=14, color="gray"))
-        fig_bcg.add_annotation(x=bcg_data['participacion'].min() * 1.1, y=bcg_data['tasa_crecimiento'].max() * 0.9,
-                              text="❓ INTERROGANTES", showarrow=False, font=dict(size=14, color="gray"))
-        fig_bcg.add_annotation(x=bcg_data['participacion'].min() * 1.1, y=bcg_data['tasa_crecimiento'].min() * 0.9,
-                              text="🐕 PERROS", showarrow=False, font=dict(size=14, color="gray"))
+        # Solo mostrar texto en los productos más grandes para no saturar
+        for trace in fig_bcg.data:
+            if trace.marker.size is not None:
+                trace.text = [txt if size > bcg_data_plot['cantidad'].quantile(0.7) else '' 
+                             for txt, size in zip(trace.text, trace.marker.size)]
         
-        fig_bcg.update_layout(showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        # Agregar líneas de división más visibles
+        fig_bcg.add_hline(y=crecimiento_medio, line_dash="dash", line_color="black", line_width=2, opacity=0.4)
+        fig_bcg.add_vline(x=participacion_media, line_dash="dash", line_color="black", line_width=2, opacity=0.4)
+        
+        # Mejorar anotaciones de cuadrantes
+        max_x = bcg_data_plot['participacion'].max()
+        min_x = bcg_data_plot['participacion'].min()
+        max_y = bcg_data_plot['tasa_crecimiento'].max()
+        min_y = bcg_data_plot['tasa_crecimiento'].min()
+        
+        fig_bcg.add_annotation(
+            x=participacion_media + (max_x - participacion_media) * 0.5,
+            y=crecimiento_medio + (max_y - crecimiento_medio) * 0.5,
+            text="⭐ ESTRELLAS<br><sub>Invertir y crecer</sub>",
+            showarrow=False,
+            font=dict(size=16, color="gray"),
+            bgcolor="rgba(255,215,0,0.1)",
+            borderpad=10
+        )
+        
+        fig_bcg.add_annotation(
+            x=participacion_media + (max_x - participacion_media) * 0.5,
+            y=min_y + (crecimiento_medio - min_y) * 0.5,
+            text="🐄 VACAS LECHERAS<br><sub>Mantener y cosechar</sub>",
+            showarrow=False,
+            font=dict(size=16, color="gray"),
+            bgcolor="rgba(50,205,50,0.1)",
+            borderpad=10
+        )
+        
+        fig_bcg.add_annotation(
+            x=min_x + (participacion_media - min_x) * 0.5,
+            y=crecimiento_medio + (max_y - crecimiento_medio) * 0.5,
+            text="❓ INTERROGANTES<br><sub>Analizar potencial</sub>",
+            showarrow=False,
+            font=dict(size=16, color="gray"),
+            bgcolor="rgba(30,144,255,0.1)",
+            borderpad=10
+        )
+        
+        fig_bcg.add_annotation(
+            x=min_x + (participacion_media - min_x) * 0.5,
+            y=min_y + (crecimiento_medio - min_y) * 0.5,
+            text="🐕 PERROS<br><sub>Reducir o eliminar</sub>",
+            showarrow=False,
+            font=dict(size=16, color="gray"),
+            bgcolor="rgba(220,20,60,0.1)",
+            borderpad=10
+        )
+        
+        fig_bcg.update_layout(
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.15,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=12)
+            ),
+            plot_bgcolor='rgba(250,250,250,0.5)',
+            xaxis=dict(gridcolor='lightgray'),
+            yaxis=dict(gridcolor='lightgray')
+        )
         
         st.plotly_chart(fig_bcg, use_container_width=True)
         
@@ -318,5 +391,3 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
-
-
