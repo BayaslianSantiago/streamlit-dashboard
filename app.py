@@ -230,33 +230,37 @@ try:
         # Crear scatter plot
         import plotly.express as px
         
-        # Tomar solo top productos para mejor visualización (opcional)
-        # Si hay muchos productos, filtrar los más relevantes
-        if len(bcg_data) > 50:
-            # Tomar top 50 por cantidad vendida
-            bcg_data_plot = bcg_data.nlargest(50, 'cantidad')
-            st.info(f"📌 Mostrando los 50 productos más vendidos de {len(bcg_data)} totales para mejor visualización")
-        else:
-            bcg_data_plot = bcg_data
+        # Filtrar productos más relevantes para mejor visualización
+        # Tomar productos que tengan al menos 1% de participación O estén en top 30
+        bcg_data_plot = bcg_data[
+            (bcg_data['participacion'] >= 1.0) | 
+            (bcg_data['cantidad'].rank(ascending=False) <= 30)
+        ].copy()
+        
+        st.info(f"📌 Mostrando {len(bcg_data_plot)} productos más relevantes de {len(bcg_data)} totales (≥1% participación o top 30)")
+        
+        # Limitar tasa de crecimiento extrema para mejor visualización
+        bcg_data_plot['tasa_crecimiento_plot'] = bcg_data_plot['tasa_crecimiento'].clip(-100, 300)
         
         fig_bcg = px.scatter(
             bcg_data_plot,
             x='participacion',
-            y='tasa_crecimiento',
+            y='tasa_crecimiento_plot',
             size='cantidad',
             color='categoria',
-            text='producto',  # Agregar texto
+            text='producto',
             hover_name='producto',
             hover_data={
-                'producto': False,  # No duplicar en hover
+                'producto': False,
                 'participacion': ':.2f',
-                'tasa_crecimiento': ':.1f',
+                'tasa_crecimiento': ':.1f',  # Mostrar valor real en hover
+                'tasa_crecimiento_plot': False,  # Ocultar valor recortado
                 'cantidad': ':,',
                 'categoria': True
             },
             labels={
                 'participacion': 'Participación de Mercado (%)',
-                'tasa_crecimiento': 'Tasa de Crecimiento (%)',
+                'tasa_crecimiento_plot': 'Tasa de Crecimiento (%)',
                 'categoria': 'Categoría'
             },
             color_discrete_map={
@@ -268,66 +272,80 @@ try:
             height=700
         )
         
-        # Configurar el texto en las burbujas (solo para productos grandes)
+        # Configurar el texto en las burbujas (solo para los 15 productos más grandes)
+        top_n_show = 15
+        umbral_texto = bcg_data_plot.nlargest(top_n_show, 'cantidad')['cantidad'].min()
+        
         fig_bcg.update_traces(
             textposition='top center',
-            textfont=dict(size=9, color='black'),
-            marker=dict(line=dict(width=1, color='white'), sizemode='diameter', sizemin=5)
+            textfont=dict(size=10, color='black'),
+            marker=dict(
+                line=dict(width=2, color='white'),
+                sizemode='diameter',
+                sizemin=8,
+                sizeref=bcg_data_plot['cantidad'].max() / 1000  # Escalar mejor las burbujas
+            )
         )
         
-        # Solo mostrar texto en los productos más grandes para no saturar
+        # Mostrar texto solo en productos grandes
         for trace in fig_bcg.data:
-            if trace.marker.size is not None:
-                trace.text = [txt if size > bcg_data_plot['cantidad'].quantile(0.7) else '' 
-                             for txt, size in zip(trace.text, trace.marker.size)]
+            if hasattr(trace, 'marker') and hasattr(trace.marker, 'size'):
+                sizes = trace.marker.size if hasattr(trace.marker.size, '__iter__') else [trace.marker.size]
+                texts = trace.text if hasattr(trace.text, '__iter__') else [trace.text]
+                trace.text = [txt if bcg_data_plot.loc[bcg_data_plot['producto']==txt, 'cantidad'].values[0] >= umbral_texto else '' 
+                             for txt in texts] if len(texts) > 0 else []
         
-        # Agregar líneas de división más visibles
-        fig_bcg.add_hline(y=crecimiento_medio, line_dash="dash", line_color="black", line_width=2, opacity=0.4)
-        fig_bcg.add_vline(x=participacion_media, line_dash="dash", line_color="black", line_width=2, opacity=0.4)
+        # Recalcular medianas con datos filtrados para mejor división
+        participacion_media_plot = bcg_data_plot['participacion'].median()
+        crecimiento_medio_plot = bcg_data_plot['tasa_crecimiento_plot'].median()
+        
+        # Agregar líneas de división
+        fig_bcg.add_hline(y=crecimiento_medio_plot, line_dash="dash", line_color="black", line_width=2, opacity=0.5)
+        fig_bcg.add_vline(x=participacion_media_plot, line_dash="dash", line_color="black", line_width=2, opacity=0.5)
         
         # Mejorar anotaciones de cuadrantes
         max_x = bcg_data_plot['participacion'].max()
         min_x = bcg_data_plot['participacion'].min()
-        max_y = bcg_data_plot['tasa_crecimiento'].max()
-        min_y = bcg_data_plot['tasa_crecimiento'].min()
+        max_y = bcg_data_plot['tasa_crecimiento_plot'].max()
+        min_y = bcg_data_plot['tasa_crecimiento_plot'].min()
         
         fig_bcg.add_annotation(
-            x=participacion_media + (max_x - participacion_media) * 0.5,
-            y=crecimiento_medio + (max_y - crecimiento_medio) * 0.5,
+            x=participacion_media_plot + (max_x - participacion_media_plot) * 0.5,
+            y=crecimiento_medio_plot + (max_y - crecimiento_medio_plot) * 0.5,
             text="⭐ ESTRELLAS<br><sub>Invertir y crecer</sub>",
             showarrow=False,
-            font=dict(size=16, color="gray"),
-            bgcolor="rgba(255,215,0,0.1)",
+            font=dict(size=16, color="gray", family="Arial Black"),
+            bgcolor="rgba(255,215,0,0.15)",
             borderpad=10
         )
         
         fig_bcg.add_annotation(
-            x=participacion_media + (max_x - participacion_media) * 0.5,
-            y=min_y + (crecimiento_medio - min_y) * 0.5,
+            x=participacion_media_plot + (max_x - participacion_media_plot) * 0.5,
+            y=min_y + (crecimiento_medio_plot - min_y) * 0.5,
             text="🐄 VACAS LECHERAS<br><sub>Mantener y cosechar</sub>",
             showarrow=False,
-            font=dict(size=16, color="gray"),
-            bgcolor="rgba(50,205,50,0.1)",
+            font=dict(size=16, color="gray", family="Arial Black"),
+            bgcolor="rgba(50,205,50,0.15)",
             borderpad=10
         )
         
         fig_bcg.add_annotation(
-            x=min_x + (participacion_media - min_x) * 0.5,
-            y=crecimiento_medio + (max_y - crecimiento_medio) * 0.5,
+            x=min_x + (participacion_media_plot - min_x) * 0.5,
+            y=crecimiento_medio_plot + (max_y - crecimiento_medio_plot) * 0.5,
             text="❓ INTERROGANTES<br><sub>Analizar potencial</sub>",
             showarrow=False,
-            font=dict(size=16, color="gray"),
-            bgcolor="rgba(30,144,255,0.1)",
+            font=dict(size=16, color="gray", family="Arial Black"),
+            bgcolor="rgba(30,144,255,0.15)",
             borderpad=10
         )
         
         fig_bcg.add_annotation(
-            x=min_x + (participacion_media - min_x) * 0.5,
-            y=min_y + (crecimiento_medio - min_y) * 0.5,
+            x=min_x + (participacion_media_plot - min_x) * 0.5,
+            y=min_y + (crecimiento_medio_plot - min_y) * 0.5,
             text="🐕 PERROS<br><sub>Reducir o eliminar</sub>",
             showarrow=False,
-            font=dict(size=16, color="gray"),
-            bgcolor="rgba(220,20,60,0.1)",
+            font=dict(size=16, color="gray", family="Arial Black"),
+            bgcolor="rgba(220,20,60,0.15)",
             borderpad=10
         )
         
@@ -341,9 +359,9 @@ try:
                 x=0.5,
                 font=dict(size=12)
             ),
-            plot_bgcolor='rgba(250,250,250,0.5)',
-            xaxis=dict(gridcolor='lightgray'),
-            yaxis=dict(gridcolor='lightgray')
+            plot_bgcolor='rgba(250,250,250,0.8)',
+            xaxis=dict(gridcolor='lightgray', zeroline=True, zerolinewidth=2, zerolinecolor='black'),
+            yaxis=dict(gridcolor='lightgray', zeroline=True, zerolinewidth=2, zerolinecolor='black')
         )
         
         st.plotly_chart(fig_bcg, use_container_width=True)
