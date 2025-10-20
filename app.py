@@ -14,8 +14,8 @@ def cargar_datos():
     return df
 
 # --- INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="Análisis Fiambrería", page_icon="📊", layout="wide")
-st.title("📊 Análisis de Ventas - Fiambrería")
+st.set_page_config(page_title="Análisis Estancia", page_icon="📊", layout="wide")
+st.title("📊 Ciencia de Datos Estancia")
 
 # Cargar datos automáticamente
 try:
@@ -190,3 +190,4 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+
