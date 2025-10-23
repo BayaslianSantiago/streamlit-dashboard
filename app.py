@@ -1,19 +1,18 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
+import numpy as np
 
 # URL del CSV en GitHub
 DATA_URL = "https://raw.githubusercontent.com/BayaslianSantiago/streamlit-dashboard/refs/heads/main/datos.csv"
 
-@st.cache_data(ttl=3600)  # Cachea por 1 hora
+@st.cache_data(ttl=3600)
 def cargar_datos():
     """Carga los datos desde GitHub y prepara columnas temporales"""
     df = pd.read_csv(DATA_URL)
     df['fecha_hora'] = pd.to_datetime(df['fecha_hora'])
-    
-    # ORDENAR por fecha_hora
     df = df.sort_values('fecha_hora').reset_index(drop=True)
-    
     return df
 
 # --- INTERFAZ STREAMLIT ---
@@ -37,15 +36,18 @@ try:
     
     st.divider()
     
-    # --- SELECTOR DE MES (ANTES DE TODO) ---
+    # --- SELECTOR DE MES ---
     st.subheader("🔍 Selecciona el período a analizar")
     
     # Preparar datos temporales
     df_temp = df_limpio.copy()
     df_temp['hora_num'] = df_temp['fecha_hora'].dt.hour
+    df_temp['minuto'] = df_temp['fecha_hora'].dt.minute
+    df_temp['media_hora'] = df_temp['hora_num'] + (df_temp['minuto'] >= 30).astype(int) * 0.5
     df_temp['dia_semana'] = df_temp['fecha_hora'].dt.day_name()
     df_temp['mes_num'] = df_temp['fecha_hora'].dt.month
     df_temp['año'] = df_temp['fecha_hora'].dt.year
+    df_temp['semana_del_mes'] = ((df_temp['fecha_hora'].dt.day - 1) // 7) + 1
     
     # Diccionario de meses
     meses_español = {
@@ -54,11 +56,11 @@ try:
         9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
     }
     
-    # Obtener meses disponibles con datos (ordenados por año y mes)
+    # Obtener meses disponibles con datos
     meses_con_datos = df_temp.groupby(['año', 'mes_num'])['cantidad'].sum()
     meses_con_datos = meses_con_datos[meses_con_datos > 0].reset_index()
     
-    # Crear opciones de selección con formato "Mes Año"
+    # Crear opciones de selección
     meses_opciones = ['📊 Todos los datos']
     for _, row in meses_con_datos.iterrows():
         mes_nombre = meses_español[row['mes_num']]
@@ -75,8 +77,9 @@ try:
     if periodo_seleccionado == '📊 Todos los datos':
         df_analisis = df_temp.copy()
         titulo_periodo = "Todo el período"
+        mes_num_sel = None
+        año_sel = None
     else:
-        # Extraer mes y año de la selección (ej: "Octubre 2024")
         partes = periodo_seleccionado.split()
         mes_nombre = partes[0]
         año_sel = int(partes[1])
@@ -85,63 +88,99 @@ try:
         df_analisis = df_temp[(df_temp['mes_num'] == mes_num_sel) & (df_temp['año'] == año_sel)].copy()
         titulo_periodo = periodo_seleccionado
     
-    # Mostrar cuántos registros hay en el período seleccionado
     st.info(f"📋 Analizando **{len(df_analisis):,} registros** del período: **{titulo_periodo}**")
     
     st.divider()
     
-    # --- HEATMAP DE HORAS PICO ---
+    # --- HEATMAP POR MEDIA HORA ---
     if not df_analisis.empty:
-        st.subheader(f"🔥 Heatmap de Ventas - {titulo_periodo}")
-        st.caption("Intensidad de ventas por día de la semana y hora del día")
+        st.subheader(f"🔥 Heatmap de Ventas por Media Hora - {titulo_periodo}")
+        st.caption("Intensidad de ventas por día de la semana cada 30 minutos")
         
-        # Orden y traducción de días
         dias_orden = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         dias_español = {
             'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles', 
             'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
         }
         
-        # Crear matriz de ventas por hora y día
-        ventas_hora_dia = df_analisis.groupby(['dia_semana', 'hora_num'])['cantidad'].sum().reset_index()
-        ventas_matriz = ventas_hora_dia.pivot(index='dia_semana', columns='hora_num', values='cantidad').fillna(0)
+        # Crear matriz por media hora
+        ventas_media_hora = df_analisis.groupby(['dia_semana', 'media_hora'])['cantidad'].sum().reset_index()
+        ventas_matriz_mh = ventas_media_hora.pivot(index='dia_semana', columns='media_hora', values='cantidad').fillna(0)
         
-        # Reordenar días y traducir
-        ventas_matriz = ventas_matriz.reindex([d for d in dias_orden if d in ventas_matriz.index])
-        ventas_matriz.index = [dias_español[d] for d in ventas_matriz.index]
+        # Reordenar y traducir
+        ventas_matriz_mh = ventas_matriz_mh.reindex([d for d in dias_orden if d in ventas_matriz_mh.index])
+        ventas_matriz_mh.index = [dias_español[d] for d in ventas_matriz_mh.index]
         
-        # Crear heatmap con Plotly
-        fig_heatmap = go.Figure(data=go.Heatmap(
-            z=ventas_matriz.values,
-            x=ventas_matriz.columns,
-            y=ventas_matriz.index,
+        # Crear etiquetas para el eje X (formato "HH:MM")
+        etiquetas_horas = [f"{int(h)}:{('00' if h % 1 == 0 else '30')}" for h in ventas_matriz_mh.columns]
+        
+        fig_heatmap_mh = go.Figure(data=go.Heatmap(
+            z=ventas_matriz_mh.values,
+            x=etiquetas_horas,
+            y=ventas_matriz_mh.index,
             colorscale='YlOrRd',
-            text=ventas_matriz.values.astype(int),
+            text=ventas_matriz_mh.values.astype(int),
             texttemplate='%{text}',
-            textfont={"size": 10},
+            textfont={"size": 9},
             colorbar=dict(title="Unidades<br>vendidas")
         ))
         
-        fig_heatmap.update_layout(
+        fig_heatmap_mh.update_layout(
             xaxis_title="Hora del Día",
             yaxis_title="Día de la Semana",
             height=500,
-            xaxis=dict(dtick=1)  # Mostrar todas las horas
+            xaxis=dict(tickangle=-45)
         )
         
-        st.plotly_chart(fig_heatmap, use_container_width=True)
+        st.plotly_chart(fig_heatmap_mh, use_container_width=True)
+        
+        st.divider()
+        
+        # --- HEATMAP POR SEMANA DEL MES ---
+        if mes_num_sel is not None:  # Solo mostrar si es un mes específico
+            st.subheader(f"📅 Heatmap por Semana del Mes - {titulo_periodo}")
+            st.caption("Intensidad de ventas por semana y día de la semana")
+            
+            ventas_semana = df_analisis.groupby(['semana_del_mes', 'dia_semana'])['cantidad'].sum().reset_index()
+            ventas_matriz_sem = ventas_semana.pivot(index='semana_del_mes', columns='dia_semana', values='cantidad').fillna(0)
+            
+            # Reordenar columnas por día de la semana
+            dias_disponibles = [d for d in dias_orden if d in ventas_matriz_sem.columns]
+            ventas_matriz_sem = ventas_matriz_sem[dias_disponibles]
+            ventas_matriz_sem.columns = [dias_español[d] for d in ventas_matriz_sem.columns]
+            
+            # Renombrar índice
+            ventas_matriz_sem.index = [f"Semana {int(s)}" for s in ventas_matriz_sem.index]
+            
+            fig_heatmap_sem = go.Figure(data=go.Heatmap(
+                z=ventas_matriz_sem.values,
+                x=ventas_matriz_sem.columns,
+                y=ventas_matriz_sem.index,
+                colorscale='Viridis',
+                text=ventas_matriz_sem.values.astype(int),
+                texttemplate='%{text}',
+                textfont={"size": 12},
+                colorbar=dict(title="Unidades<br>vendidas")
+            ))
+            
+            fig_heatmap_sem.update_layout(
+                xaxis_title="Día de la Semana",
+                yaxis_title="Semana del Mes",
+                height=400
+            )
+            
+            st.plotly_chart(fig_heatmap_sem, use_container_width=True)
+            
+            st.divider()
         
         # --- MÉTRICAS CLAVE ---
         st.markdown("### 📊 Métricas del período seleccionado")
         
-        # Encontrar hora y día pico
+        ventas_hora_dia = df_analisis.groupby(['dia_semana', 'hora_num'])['cantidad'].sum().reset_index()
         idx_max = ventas_hora_dia['cantidad'].idxmax()
         hora_pico = int(ventas_hora_dia.loc[idx_max, 'hora_num'])
         dia_pico = dias_español[ventas_hora_dia.loc[idx_max, 'dia_semana']]
         cantidad_pico = int(ventas_hora_dia.loc[idx_max, 'cantidad'])
-        
-        # Calcular promedios
-        promedio_por_hora = df_analisis.groupby('hora_num')['cantidad'].sum().mean()
         total_vendido = df_analisis['cantidad'].sum()
         
         col1, col2, col3, col4 = st.columns(4)
@@ -156,27 +195,24 @@ try:
         
         st.divider()
         
-        # --- MATRIZ BCG ---
+        # --- MATRIZ BCG MEJORADA ---
         st.subheader("📊 Matriz BCG - Boston Consulting Group")
         st.caption("Clasifica tus productos según participación de mercado y crecimiento")
         
-        # Calcular participación de mercado (% de ventas de cada producto)
+        # Calcular participación de mercado
         ventas_por_producto = df_analisis.groupby('producto')['cantidad'].sum().reset_index()
         ventas_por_producto['participacion'] = (ventas_por_producto['cantidad'] / ventas_por_producto['cantidad'].sum()) * 100
         
         # Calcular tasa de crecimiento
         if periodo_seleccionado == '📊 Todos los datos':
-            # Comparar primera mitad vs segunda mitad
             fecha_mitad = df_analisis['fecha_hora'].min() + (df_analisis['fecha_hora'].max() - df_analisis['fecha_hora'].min()) / 2
             df_periodo1 = df_analisis[df_analisis['fecha_hora'] < fecha_mitad]
             df_periodo2 = df_analisis[df_analisis['fecha_hora'] >= fecha_mitad]
             periodo_comparacion = "Primera mitad vs Segunda mitad"
         else:
-            # Comparar mes seleccionado vs mes anterior
             mes_actual = mes_num_sel
             año_actual = año_sel
             
-            # Calcular mes anterior
             if mes_actual == 1:
                 mes_anterior = 12
                 año_anterior = año_actual - 1
@@ -189,32 +225,26 @@ try:
             mes_ant_nombre = meses_español[mes_anterior]
             periodo_comparacion = f"{mes_ant_nombre} {año_anterior} vs {titulo_periodo}"
         
-        # Ventas por producto en cada período
         ventas_p1 = df_periodo1.groupby('producto')['cantidad'].sum()
         ventas_p2 = df_periodo2.groupby('producto')['cantidad'].sum()
         
-        # Calcular crecimiento (manejar productos nuevos o sin ventas previas)
         crecimiento = pd.DataFrame({
             'producto': ventas_p2.index,
             'ventas_periodo1': ventas_p2.index.map(lambda x: ventas_p1.get(x, 0)),
             'ventas_periodo2': ventas_p2.values
         })
         
-        # Calcular % de crecimiento
         crecimiento['tasa_crecimiento'] = crecimiento.apply(
             lambda row: ((row['ventas_periodo2'] - row['ventas_periodo1']) / row['ventas_periodo1'] * 100) 
-            if row['ventas_periodo1'] > 0 else 100,  # Si no había ventas antes, es 100% de crecimiento
+            if row['ventas_periodo1'] > 0 else 100,
             axis=1
         )
         
-        # Unir con participación de mercado
         bcg_data = ventas_por_producto.merge(crecimiento[['producto', 'tasa_crecimiento']], on='producto')
         
-        # Calcular promedios para los ejes
         participacion_media = bcg_data['participacion'].median()
         crecimiento_medio = bcg_data['tasa_crecimiento'].median()
         
-        # Clasificar productos en cuadrantes
         def clasificar_bcg(row):
             if row['participacion'] >= participacion_media and row['tasa_crecimiento'] >= crecimiento_medio:
                 return '⭐ Estrella'
@@ -227,146 +257,142 @@ try:
         
         bcg_data['categoria'] = bcg_data.apply(clasificar_bcg, axis=1)
         
-        # Crear scatter plot
-        import plotly.express as px
-        
-        # Filtrar productos más relevantes para mejor visualización
-        # Tomar productos que tengan al menos 1% de participación O estén en top 30
+        # Filtrar productos relevantes
         bcg_data_plot = bcg_data[
-            (bcg_data['participacion'] >= 1.0) | 
-            (bcg_data['cantidad'].rank(ascending=False) <= 30)
+            (bcg_data['participacion'] >= 0.5) | 
+            (bcg_data['cantidad'].rank(ascending=False) <= 40)
         ].copy()
         
-        st.info(f"📌 Mostrando {len(bcg_data_plot)} productos más relevantes de {len(bcg_data)} totales (≥1% participación o top 30)")
+        st.info(f"📌 Mostrando {len(bcg_data_plot)} productos más relevantes de {len(bcg_data)} totales (≥0.5% participación o top 40)")
         
-        # Limitar tasa de crecimiento extrema para mejor visualización
         bcg_data_plot['tasa_crecimiento_plot'] = bcg_data_plot['tasa_crecimiento'].clip(-100, 300)
         
-        fig_bcg = px.scatter(
-            bcg_data_plot,
-            x='participacion',
-            y='tasa_crecimiento_plot',
-            size='cantidad',
-            color='categoria',
-            text='producto',
-            hover_name='producto',
-            hover_data={
-                'producto': False,
-                'participacion': ':.2f',
-                'tasa_crecimiento': ':.1f',  # Mostrar valor real en hover
-                'tasa_crecimiento_plot': False,  # Ocultar valor recortado
-                'cantidad': ':,',
-                'categoria': True
-            },
-            labels={
-                'participacion': 'Participación de Mercado (%)',
-                'tasa_crecimiento_plot': 'Tasa de Crecimiento (%)',
-                'categoria': 'Categoría'
-            },
-            color_discrete_map={
-                '⭐ Estrella': '#FFD700',
-                '🐄 Vaca Lechera': '#32CD32',
-                '❓ Interrogante': '#1E90FF',
-                '🐕 Perro': '#DC143C'
-            },
-            height=700
-        )
+        # GRÁFICO BCG MEJORADO
+        fig_bcg = go.Figure()
         
-        # Configurar el texto en las burbujas (solo para los 15 productos más grandes)
-        top_n_show = 15
-        umbral_texto = bcg_data_plot.nlargest(top_n_show, 'cantidad')['cantidad'].min()
+        categorias = {
+            '⭐ Estrella': {'color': '#FFD700', 'symbol': 'star'},
+            '🐄 Vaca Lechera': {'color': '#32CD32', 'symbol': 'circle'},
+            '❓ Interrogante': {'color': '#1E90FF', 'symbol': 'diamond'},
+            '🐕 Perro': {'color': '#DC143C', 'symbol': 'x'}
+        }
         
-        fig_bcg.update_traces(
-            textposition='top center',
-            textfont=dict(size=10, color='black'),
-            marker=dict(
-                line=dict(width=2, color='white'),
-                sizemode='diameter',
-                sizemin=8,
-                sizeref=bcg_data_plot['cantidad'].max() / 1000  # Escalar mejor las burbujas
-            )
-        )
+        for cat, props in categorias.items():
+            df_cat = bcg_data_plot[bcg_data_plot['categoria'] == cat]
+            if not df_cat.empty:
+                # Escalar tamaños de burbuja de forma más visible
+                sizes = df_cat['cantidad'].values
+                sizes_scaled = 10 + (sizes / sizes.max()) * 50  # Rango de 10 a 60
+                
+                fig_bcg.add_trace(go.Scatter(
+                    x=df_cat['participacion'],
+                    y=df_cat['tasa_crecimiento_plot'],
+                    mode='markers+text',
+                    name=cat,
+                    marker=dict(
+                        size=sizes_scaled,
+                        color=props['color'],
+                        symbol=props['symbol'],
+                        line=dict(width=2, color='white'),
+                        opacity=0.8
+                    ),
+                    text=df_cat['producto'],
+                    textposition='top center',
+                    textfont=dict(size=9, color='black', family='Arial Black'),
+                    customdata=np.column_stack((
+                        df_cat['cantidad'].values,
+                        df_cat['tasa_crecimiento'].values,
+                        df_cat['participacion'].values
+                    )),
+                    hovertemplate='<b>%{text}</b><br>' +
+                                  'Participación: %{customdata[2]:.2f}%<br>' +
+                                  'Crecimiento: %{customdata[1]:.1f}%<br>' +
+                                  'Unidades: %{customdata[0]:,}<br>' +
+                                  '<extra></extra>'
+                ))
         
-        # Mostrar texto solo en productos grandes
-        for trace in fig_bcg.data:
-            if hasattr(trace, 'marker') and hasattr(trace.marker, 'size'):
-                sizes = trace.marker.size if hasattr(trace.marker.size, '__iter__') else [trace.marker.size]
-                texts = trace.text if hasattr(trace.text, '__iter__') else [trace.text]
-                trace.text = [txt if bcg_data_plot.loc[bcg_data_plot['producto']==txt, 'cantidad'].values[0] >= umbral_texto else '' 
-                             for txt in texts] if len(texts) > 0 else []
+        # Líneas divisorias más visibles
+        fig_bcg.add_hline(y=crecimiento_medio, line_dash="dash", line_color="rgba(0,0,0,0.7)", line_width=3)
+        fig_bcg.add_vline(x=participacion_media, line_dash="dash", line_color="rgba(0,0,0,0.7)", line_width=3)
         
-        # Recalcular medianas con datos filtrados para mejor división
-        participacion_media_plot = bcg_data_plot['participacion'].median()
-        crecimiento_medio_plot = bcg_data_plot['tasa_crecimiento_plot'].median()
-        
-        # Agregar líneas de división
-        fig_bcg.add_hline(y=crecimiento_medio_plot, line_dash="dash", line_color="black", line_width=2, opacity=0.5)
-        fig_bcg.add_vline(x=participacion_media_plot, line_dash="dash", line_color="black", line_width=2, opacity=0.5)
-        
-        # Mejorar anotaciones de cuadrantes
+        # Anotaciones de cuadrantes mejoradas
         max_x = bcg_data_plot['participacion'].max()
         min_x = bcg_data_plot['participacion'].min()
         max_y = bcg_data_plot['tasa_crecimiento_plot'].max()
         min_y = bcg_data_plot['tasa_crecimiento_plot'].min()
         
-        fig_bcg.add_annotation(
-            x=participacion_media_plot + (max_x - participacion_media_plot) * 0.5,
-            y=crecimiento_medio_plot + (max_y - crecimiento_medio_plot) * 0.5,
-            text="⭐ ESTRELLAS<br><sub>Invertir y crecer</sub>",
-            showarrow=False,
-            font=dict(size=16, color="gray", family="Arial Black"),
-            bgcolor="rgba(255,215,0,0.15)",
-            borderpad=10
-        )
+        anotaciones = [
+            {'x': participacion_media + (max_x - participacion_media) * 0.7, 
+             'y': crecimiento_medio + (max_y - crecimiento_medio) * 0.85,
+             'text': "⭐ ESTRELLAS<br><sub>Alta participación + Alto crecimiento</sub><br><sub><b>Estrategia: Invertir</b></sub>",
+             'color': '#FFD700'},
+            {'x': participacion_media + (max_x - participacion_media) * 0.7,
+             'y': min_y + (crecimiento_medio - min_y) * 0.15,
+             'text': "🐄 VACAS LECHERAS<br><sub>Alta participación + Bajo crecimiento</sub><br><sub><b>Estrategia: Mantener</b></sub>",
+             'color': '#32CD32'},
+            {'x': min_x + (participacion_media - min_x) * 0.3,
+             'y': crecimiento_medio + (max_y - crecimiento_medio) * 0.85,
+             'text': "❓ INTERROGANTES<br><sub>Baja participación + Alto crecimiento</sub><br><sub><b>Estrategia: Analizar</b></sub>",
+             'color': '#1E90FF'},
+            {'x': min_x + (participacion_media - min_x) * 0.3,
+             'y': min_y + (crecimiento_medio - min_y) * 0.15,
+             'text': "🐕 PERROS<br><sub>Baja participación + Bajo crecimiento</sub><br><sub><b>Estrategia: Eliminar</b></sub>",
+             'color': '#DC143C'}
+        ]
         
-        fig_bcg.add_annotation(
-            x=participacion_media_plot + (max_x - participacion_media_plot) * 0.5,
-            y=min_y + (crecimiento_medio_plot - min_y) * 0.5,
-            text="🐄 VACAS LECHERAS<br><sub>Mantener y cosechar</sub>",
-            showarrow=False,
-            font=dict(size=16, color="gray", family="Arial Black"),
-            bgcolor="rgba(50,205,50,0.15)",
-            borderpad=10
-        )
-        
-        fig_bcg.add_annotation(
-            x=min_x + (participacion_media_plot - min_x) * 0.5,
-            y=crecimiento_medio_plot + (max_y - crecimiento_medio_plot) * 0.5,
-            text="❓ INTERROGANTES<br><sub>Analizar potencial</sub>",
-            showarrow=False,
-            font=dict(size=16, color="gray", family="Arial Black"),
-            bgcolor="rgba(30,144,255,0.15)",
-            borderpad=10
-        )
-        
-        fig_bcg.add_annotation(
-            x=min_x + (participacion_media_plot - min_x) * 0.5,
-            y=min_y + (crecimiento_medio_plot - min_y) * 0.5,
-            text="🐕 PERROS<br><sub>Reducir o eliminar</sub>",
-            showarrow=False,
-            font=dict(size=16, color="gray", family="Arial Black"),
-            bgcolor="rgba(220,20,60,0.15)",
-            borderpad=10
-        )
+        for anotacion in anotaciones:
+            fig_bcg.add_annotation(
+                x=anotacion['x'], y=anotacion['y'],
+                text=anotacion['text'],
+                showarrow=False,
+                font=dict(size=11, color='white', family='Arial Black'),
+                bgcolor=anotacion['color'],
+                borderpad=10,
+                bordercolor='white',
+                borderwidth=2,
+                opacity=0.9
+            )
         
         fig_bcg.update_layout(
+            height=750,
             showlegend=True,
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=-0.15,
+                y=-0.12,
                 xanchor="center",
                 x=0.5,
-                font=dict(size=12)
+                font=dict(size=13, family='Arial Black'),
+                bgcolor='rgba(255,255,255,0.9)',
+                bordercolor='black',
+                borderwidth=2
             ),
-            plot_bgcolor='rgba(250,250,250,0.8)',
-            xaxis=dict(gridcolor='lightgray', zeroline=True, zerolinewidth=2, zerolinecolor='black'),
-            yaxis=dict(gridcolor='lightgray', zeroline=True, zerolinewidth=2, zerolinecolor='black')
+            plot_bgcolor='rgba(245,245,245,1)',
+            xaxis=dict(
+                title="Participación de Mercado (%)",
+                gridcolor='rgba(200,200,200,0.5)',
+                zeroline=True,
+                zerolinewidth=2,
+                zerolinecolor='black',
+                title_font=dict(size=14, family='Arial Black')
+            ),
+            yaxis=dict(
+                title="Tasa de Crecimiento (%)",
+                gridcolor='rgba(200,200,200,0.5)',
+                zeroline=True,
+                zerolinewidth=2,
+                zerolinecolor='black',
+                title_font=dict(size=14, family='Arial Black')
+            ),
+            hoverlabel=dict(
+                bgcolor="white",
+                font_size=12,
+                font_family="Arial"
+            )
         )
         
         st.plotly_chart(fig_bcg, use_container_width=True)
         
-        # Info sobre el análisis
         st.info(f"📊 **Comparación:** {periodo_comparacion}")
         
         # Tabla resumen por categoría
