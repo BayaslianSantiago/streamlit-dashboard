@@ -396,6 +396,138 @@ try:
             else:
                 st.info("No hay productos en esta categoría")
         
+        st.divider()
+        
+        # --- BUSCADOR DE PRODUCTOS ---
+        st.subheader("🔍 Buscador de Productos")
+        st.caption("Busca y analiza cualquier producto en detalle")
+        
+        # Selector de producto
+        productos_disponibles = sorted(df_analisis['producto'].unique())
+        producto_seleccionado = st.selectbox(
+            "Selecciona un producto:",
+            productos_disponibles,
+            help="Elige un producto para ver su análisis completo"
+        )
+        
+        if producto_seleccionado:
+            # Filtrar datos del producto
+            df_producto = df_analisis[df_analisis['producto'] == producto_seleccionado].copy()
+            
+            # Obtener información BCG del producto
+            info_bcg = bcg_data[bcg_data['producto'] == producto_seleccionado].iloc[0]
+            
+            # Métricas principales del producto
+            st.markdown(f"### 📦 {producto_seleccionado}")
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric("🏷️ Categoría BCG", info_bcg['categoria'])
+            with col2:
+                st.metric("📊 Unidades Vendidas", f"{int(info_bcg['cantidad']):,}")
+            with col3:
+                st.metric("📈 Participación", f"{info_bcg['participacion']:.2f}%")
+            with col4:
+                st.metric("📉 Crecimiento", f"{info_bcg['tasa_crecimiento']:.1f}%")
+            with col5:
+                ranking = bcg_data['cantidad'].rank(ascending=False)[bcg_data['producto'] == producto_seleccionado].values[0]
+                st.metric("🏆 Ranking", f"#{int(ranking)}")
+            
+            st.divider()
+            
+            # Gráficos del producto
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Ventas por día de la semana
+                st.markdown("#### 📅 Ventas por Día de la Semana")
+                ventas_dia = df_producto.groupby('dia_semana')['cantidad'].sum().reset_index()
+                ventas_dia['dia_semana'] = ventas_dia['dia_semana'].map(dias_español)
+                ventas_dia = ventas_dia.set_index('dia_semana').reindex([dias_español[d] for d in dias_orden if d in df_producto['dia_semana'].unique()])
+                
+                fig_dias = go.Figure(data=[
+                    go.Bar(x=ventas_dia.index, y=ventas_dia['cantidad'].values, 
+                           marker_color='#1E90FF',
+                           text=ventas_dia['cantidad'].values,
+                           textposition='auto')
+                ])
+                fig_dias.update_layout(
+                    height=350,
+                    xaxis_title="Día",
+                    yaxis_title="Unidades",
+                    showlegend=False
+                )
+                st.plotly_chart(fig_dias, use_container_width=True)
+            
+            with col2:
+                # Ventas por hora
+                st.markdown("#### 🕐 Ventas por Hora del Día")
+                ventas_hora = df_producto.groupby('hora_num')['cantidad'].sum().reset_index()
+                
+                fig_horas = go.Figure(data=[
+                    go.Scatter(x=ventas_hora['hora_num'], y=ventas_hora['cantidad'],
+                              mode='lines+markers',
+                              line=dict(color='#32CD32', width=3),
+                              marker=dict(size=8),
+                              fill='tozeroy',
+                              fillcolor='rgba(50,205,50,0.2)')
+                ])
+                fig_horas.update_layout(
+                    height=350,
+                    xaxis_title="Hora",
+                    yaxis_title="Unidades",
+                    showlegend=False,
+                    xaxis=dict(dtick=2)
+                )
+                st.plotly_chart(fig_horas, use_container_width=True)
+            
+            # Tendencia temporal
+            st.markdown("#### 📈 Tendencia de Ventas en el Tiempo")
+            df_producto_tiempo = df_producto.copy()
+            df_producto_tiempo['fecha'] = df_producto_tiempo['fecha_hora'].dt.date
+            ventas_tiempo = df_producto_tiempo.groupby('fecha')['cantidad'].sum().reset_index()
+            
+            fig_tendencia = go.Figure(data=[
+                go.Scatter(x=ventas_tiempo['fecha'], y=ventas_tiempo['cantidad'],
+                          mode='lines+markers',
+                          line=dict(color='#FFD700', width=2),
+                          marker=dict(size=6),
+                          fill='tozeroy',
+                          fillcolor='rgba(255,215,0,0.2)')
+            ])
+            fig_tendencia.update_layout(
+                height=300,
+                xaxis_title="Fecha",
+                yaxis_title="Unidades Vendidas",
+                showlegend=False
+            )
+            st.plotly_chart(fig_tendencia, use_container_width=True)
+            
+            # Estadísticas adicionales
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("##### 📊 Estadísticas")
+                promedio_diario = df_producto_tiempo.groupby('fecha')['cantidad'].sum().mean()
+                st.write(f"**Promedio diario:** {promedio_diario:.1f} unidades")
+                st.write(f"**Máximo en un día:** {df_producto_tiempo.groupby('fecha')['cantidad'].sum().max():.0f} unidades")
+                st.write(f"**Mínimo en un día:** {df_producto_tiempo.groupby('fecha')['cantidad'].sum().min():.0f} unidades")
+            
+            with col2:
+                st.markdown("##### 🕐 Hora Pico")
+                hora_pico_prod = ventas_hora.loc[ventas_hora['cantidad'].idxmax(), 'hora_num']
+                cantidad_hora_pico = ventas_hora['cantidad'].max()
+                st.write(f"**Mejor hora:** {int(hora_pico_prod)}:00 hs")
+                st.write(f"**Ventas en pico:** {int(cantidad_hora_pico)} unidades")
+            
+            with col3:
+                st.markdown("##### 📅 Día Pico")
+                dia_pico_prod = ventas_dia.idxmax()
+                cantidad_dia_pico = ventas_dia.max()
+                st.write(f"**Mejor día:** {dia_pico_prod}")
+                st.write(f"**Ventas en pico:** {int(cantidad_dia_pico)} unidades")
+        
     else:
         st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
 
