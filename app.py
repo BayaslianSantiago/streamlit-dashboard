@@ -3,9 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
-from prophet import Prophet
-import warnings
-warnings.filterwarnings('ignore')
 
 # URL del CSV en GitHub
 DATA_URL = "https://raw.githubusercontent.com/BayaslianSantiago/streamlit-dashboard/refs/heads/main/datos.csv"
@@ -534,259 +531,146 @@ try:
         
         st.divider()
         
-        # --- PREDICCIÓN CON PROPHET ---
-        st.subheader("🤖 Predicción de Ventas con IA")
-        st.caption("Sistema de predicción basado en Prophet de Meta AI")
+        # --- RANKING DE PRODUCTOS ---
+        st.subheader("🏆 Ranking de Productos")
+        st.caption("Analiza el rendimiento de todos tus productos")
         
-        # Selector de tipo de predicción
-        col1, col2 = st.columns([2, 1])
+        # Opciones de ranking
+        col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            tipo_prediccion = st.radio(
-                "¿Qué quieres predecir?",
-                ["📊 Ventas Totales", "🏷️ Producto Específico"],
-                horizontal=True
+            criterio_ranking = st.selectbox(
+                "Ordenar por:",
+                ["📊 Unidades Vendidas", "📈 Participación de Mercado (%)", "🔥 Tasa de Crecimiento (%)", "🏷️ Categoría BCG"],
+                help="Selecciona el criterio para ordenar los productos"
             )
         
         with col2:
-            dias_prediccion = st.selectbox(
-                "Días a predecir:",
-                [7, 14, 30, 60],
-                index=1,
-                help="Selecciona cuántos días hacia adelante quieres predecir"
-            )
+            orden = st.radio("Orden:", ["⬇️ Mayor a Menor", "⬆️ Menor a Mayor"], horizontal=True)
         
-        # Preparar datos según tipo de predicción
-        if tipo_prediccion == "📊 Ventas Totales":
-            st.info("📈 Prediciendo ventas totales del negocio")
-            
-            # Agrupar por fecha
-            df_prophet = df_analisis.copy()
-            df_prophet['ds'] = pd.to_datetime(df_prophet['fecha_hora'])
-            df_prophet = df_prophet.groupby('ds')['cantidad'].sum().reset_index()
-            df_prophet.columns = ['ds', 'y']
-            
-            titulo_pred = "Ventas Totales"
-            
-        else:  # Producto específico
-            producto_pred = st.selectbox(
-                "Selecciona el producto:",
-                sorted(df_analisis['producto'].unique()),
-                help="Elige el producto que quieres predecir"
-            )
-            
-            st.info(f"🏷️ Prediciendo ventas de: **{producto_pred}**")
-            
-            # Filtrar por producto
-            df_prophet = df_analisis[df_analisis['producto'] == producto_pred].copy()
-            df_prophet['ds'] = pd.to_datetime(df_prophet['fecha_hora'])
-            df_prophet = df_prophet.groupby('ds')['cantidad'].sum().reset_index()
-            df_prophet.columns = ['ds', 'y']
-            
-            titulo_pred = producto_pred
+        with col3:
+            limite = st.selectbox("Mostrar:", [10, 20, 50, 100, "Todos"], index=1)
         
-        # Verificar que haya suficientes datos
-        if len(df_prophet) < 10:
-            st.warning("⚠️ No hay suficientes datos históricos para hacer una predicción confiable (mínimo 10 días)")
-        else:
-            # Botón para generar predicción
-            if st.button("🚀 Generar Predicción", type="primary", use_container_width=True):
-                with st.spinner("🤖 Entrenando modelo de IA... Esto puede tomar unos segundos"):
-                    try:
-                        # Crear y entrenar modelo
-                        model = Prophet(
-                            daily_seasonality=True,
-                            weekly_seasonality=True,
-                            yearly_seasonality=True if len(df_prophet) > 365 else False,
-                            changepoint_prior_scale=0.05,
-                            seasonality_prior_scale=10
-                        )
-                        
-                        model.fit(df_prophet)
-                        
-                        # Hacer predicción
-                        future = model.make_future_dataframe(periods=dias_prediccion)
-                        forecast = model.predict(future)
-                        
-                        # Separar datos históricos y predicción
-                        forecast_futuro = forecast[forecast['ds'] > df_prophet['ds'].max()]
-                        
-                        st.success(f"✅ Predicción completada para los próximos {dias_prediccion} días")
-                        
-                        # Métricas de la predicción
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        prediccion_total = forecast_futuro['yhat'].sum()
-                        promedio_historico = df_prophet['y'].mean()
-                        promedio_predicho = forecast_futuro['yhat'].mean()
-                        cambio_porcentual = ((promedio_predicho - promedio_historico) / promedio_historico * 100)
-                        
-                        with col1:
-                            st.metric(
-                                "📦 Total Predicho",
-                                f"{prediccion_total:.0f} unidades",
-                                help=f"Ventas totales esperadas en {dias_prediccion} días"
-                            )
-                        
-                        with col2:
-                            st.metric(
-                                "📊 Promedio Diario",
-                                f"{promedio_predicho:.1f} unidades",
-                                delta=f"{cambio_porcentual:+.1f}%",
-                                help="Promedio diario predicho vs histórico"
-                            )
-                        
-                        with col3:
-                            max_predicho = forecast_futuro['yhat'].max()
-                            st.metric(
-                                "📈 Día Máximo",
-                                f"{max_predicho:.0f} unidades",
-                                help="Mayor venta esperada en un día"
-                            )
-                        
-                        with col4:
-                            min_predicho = forecast_futuro['yhat'].min()
-                            st.metric(
-                                "📉 Día Mínimo",
-                                f"{min_predicho:.0f} unidades",
-                                help="Menor venta esperada en un día"
-                            )
-                        
-                        # Gráfico principal
-                        st.markdown("#### 📈 Predicción de Ventas")
-                        
-                        fig_pred = go.Figure()
-                        
-                        # Datos históricos
-                        fig_pred.add_trace(go.Scatter(
-                            x=df_prophet['ds'],
-                            y=df_prophet['y'],
-                            mode='markers',
-                            name='Datos Reales',
-                            marker=dict(color='#1E90FF', size=6),
-                        ))
-                        
-                        # Predicción
-                        fig_pred.add_trace(go.Scatter(
-                            x=forecast_futuro['ds'],
-                            y=forecast_futuro['yhat'],
-                            mode='lines+markers',
-                            name='Predicción',
-                            line=dict(color='#FF6B6B', width=3),
-                            marker=dict(size=8)
-                        ))
-                        
-                        # Intervalo de confianza
-                        fig_pred.add_trace(go.Scatter(
-                            x=forecast_futuro['ds'].tolist() + forecast_futuro['ds'].tolist()[::-1],
-                            y=forecast_futuro['yhat_upper'].tolist() + forecast_futuro['yhat_lower'].tolist()[::-1],
-                            fill='toself',
-                            fillcolor='rgba(255,107,107,0.2)',
-                            line=dict(color='rgba(255,255,255,0)'),
-                            showlegend=True,
-                            name='Intervalo de Confianza (95%)'
-                        ))
-                        
-                        fig_pred.update_layout(
-                            title=f"Predicción de {titulo_pred}",
-                            xaxis_title="Fecha",
-                            yaxis_title="Unidades",
-                            height=500,
-                            hovermode='x unified',
-                            legend=dict(
-                                orientation="h",
-                                yanchor="bottom",
-                                y=1.02,
-                                xanchor="right",
-                                x=1
-                            )
-                        )
-                        
-                        st.plotly_chart(fig_pred, use_container_width=True)
-                        
-                        # Tabla de predicción detallada
-                        st.markdown("#### 📋 Predicción Detallada por Día")
-                        
-                        tabla_prediccion = forecast_futuro[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-                        tabla_prediccion.columns = ['Fecha', 'Predicción', 'Mínimo Esperado', 'Máximo Esperado']
-                        tabla_prediccion['Fecha'] = pd.to_datetime(tabla_prediccion['Fecha']).dt.strftime('%d/%m/%Y')
-                        tabla_prediccion['Predicción'] = tabla_prediccion['Predicción'].round(1)
-                        tabla_prediccion['Mínimo Esperado'] = tabla_prediccion['Mínimo Esperado'].round(1)
-                        tabla_prediccion['Máximo Esperado'] = tabla_prediccion['Máximo Esperado'].round(1)
-                        
-                        # Agregar día de la semana
-                        tabla_prediccion['Día'] = pd.to_datetime(forecast_futuro['ds']).dt.day_name().map(dias_español)
-                        tabla_prediccion = tabla_prediccion[['Fecha', 'Día', 'Predicción', 'Mínimo Esperado', 'Máximo Esperado']]
-                        
-                        st.dataframe(tabla_prediccion, use_container_width=True, hide_index=True)
-                        
-                        # Componentes de la predicción
-                        with st.expander("📊 Ver Componentes de la Predicción (Tendencia y Estacionalidad)"):
-                            st.markdown("Estos gráficos muestran cómo el modelo descompone las ventas:")
-                            
-                            # Tendencia
-                            fig_trend = go.Figure()
-                            fig_trend.add_trace(go.Scatter(
-                                x=forecast['ds'],
-                                y=forecast['trend'],
-                                mode='lines',
-                                name='Tendencia',
-                                line=dict(color='#32CD32', width=2)
-                            ))
-                            fig_trend.update_layout(
-                                title="Tendencia General",
-                                xaxis_title="Fecha",
-                                yaxis_title="Unidades",
-                                height=300
-                            )
-                            st.plotly_chart(fig_trend, use_container_width=True)
-                            
-                            # Estacionalidad semanal
-                            if 'weekly' in forecast.columns:
-                                fig_weekly = go.Figure()
-                                dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-                                weekly_data = forecast.groupby(forecast['ds'].dt.dayofweek)['weekly'].mean().values
-                                
-                                fig_weekly.add_trace(go.Bar(
-                                    x=dias_semana,
-                                    y=weekly_data,
-                                    marker_color='#FFD700'
-                                ))
-                                fig_weekly.update_layout(
-                                    title="Patrón Semanal",
-                                    xaxis_title="Día de la Semana",
-                                    yaxis_title="Efecto en Ventas",
-                                    height=300
-                                )
-                                st.plotly_chart(fig_weekly, use_container_width=True)
-                        
-                        # Insights automáticos
-                        st.markdown("#### 💡 Insights de la Predicción")
-                        
-                        insights = []
-                        
-                        if cambio_porcentual > 10:
-                            insights.append(f"📈 Se espera un **aumento del {cambio_porcentual:.1f}%** en las ventas promedio")
-                        elif cambio_porcentual < -10:
-                            insights.append(f"📉 Se espera una **disminución del {abs(cambio_porcentual):.1f}%** en las ventas promedio")
-                        else:
-                            insights.append(f"➡️ Las ventas se mantendrán **estables** (variación del {cambio_porcentual:.1f}%)")
-                        
-                        # Día con mayor predicción
-                        dia_max = forecast_futuro.loc[forecast_futuro['yhat'].idxmax(), 'ds']
-                        dia_max_nombre = pd.to_datetime(dia_max).day_name()
-                        insights.append(f"🔥 El **{dias_español[dia_max_nombre]} {dia_max.strftime('%d/%m')}** será el día con mayores ventas esperadas")
-                        
-                        # Recomendación de stock
-                        stock_recomendado = prediccion_total * 1.15  # 15% de margen
-                        insights.append(f"📦 Stock recomendado para el período: **{stock_recomendado:.0f} unidades** (con 15% de margen)")
-                        
-                        for insight in insights:
-                            st.info(insight)
-                        
-                    except Exception as e:
-                        st.error(f"❌ Error al generar predicción: {str(e)}")
-                        st.info("💡 Intenta con un período diferente o verifica que haya suficientes datos históricos")
+        # Preparar datos para el ranking
+        ranking_data = bcg_data.copy()
+        
+        # Definir columna de ordenamiento
+        if criterio_ranking == "📊 Unidades Vendidas":
+            col_orden = 'cantidad'
+        elif criterio_ranking == "📈 Participación de Mercado (%)":
+            col_orden = 'participacion'
+        elif criterio_ranking == "🔥 Tasa de Crecimiento (%)":
+            col_orden = 'tasa_crecimiento'
+        else:  # Categoría BCG
+            col_orden = 'categoria'
+        
+        # Ordenar datos
+        ascending = True if orden == "⬆️ Menor a Mayor" else False
+        ranking_data = ranking_data.sort_values(col_orden, ascending=ascending).reset_index(drop=True)
+        
+        # Aplicar límite
+        if limite != "Todos":
+            ranking_data = ranking_data.head(limite)
+        
+        # Agregar columna de ranking
+        ranking_data.insert(0, '#', range(1, len(ranking_data) + 1))
+        
+        # Preparar tabla para mostrar
+        tabla_ranking = ranking_data[['#', 'producto', 'cantidad', 'participacion', 'tasa_crecimiento', 'categoria']].copy()
+        tabla_ranking.columns = ['#', 'Producto', 'Unidades Vendidas', 'Participación (%)', 'Crecimiento (%)', 'Categoría BCG']
+        
+        # Formatear números
+        tabla_ranking['Unidades Vendidas'] = tabla_ranking['Unidades Vendidas'].apply(lambda x: f"{int(x):,}")
+        tabla_ranking['Participación (%)'] = tabla_ranking['Participación (%)'].apply(lambda x: f"{x:.2f}%")
+        tabla_ranking['Crecimiento (%)'] = tabla_ranking['Crecimiento (%)'].apply(lambda x: f"{x:+.1f}%")
+        
+        # Mostrar tabla con estilo
+        st.dataframe(
+            tabla_ranking,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "#": st.column_config.NumberColumn(
+                    "#",
+                    help="Posición en el ranking",
+                    width="small"
+                ),
+                "Producto": st.column_config.TextColumn(
+                    "Producto",
+                    width="large"
+                ),
+                "Categoría BCG": st.column_config.TextColumn(
+                    "Categoría BCG",
+                    width="medium"
+                )
+            }
+        )
+        
+        # Estadísticas del ranking mostrado
+        st.markdown("#### 📊 Estadísticas del Ranking")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        productos_mostrados = len(tabla_ranking)
+        total_unidades = ranking_data['cantidad'].sum()
+        participacion_total = ranking_data['participacion'].sum()
+        promedio_crecimiento = ranking_data['tasa_crecimiento'].mean()
+        
+        with col1:
+            st.metric("📦 Productos", f"{productos_mostrados}", help="Cantidad de productos en el ranking")
+        
+        with col2:
+            st.metric("🛒 Unidades Totales", f"{int(total_unidades):,}", help="Total de unidades vendidas")
+        
+        with col3:
+            st.metric("📈 Participación Total", f"{participacion_total:.1f}%", help="% del total de ventas")
+        
+        with col4:
+            st.metric("📊 Crecimiento Promedio", f"{promedio_crecimiento:+.1f}%", help="Promedio de crecimiento")
+        
+        # Distribución por categoría BCG en el ranking
+        st.markdown("#### 🎯 Distribución por Categoría BCG")
+        
+        distribucion_bcg = ranking_data.groupby('categoria').agg({
+            'producto': 'count',
+            'cantidad': 'sum'
+        }).reset_index()
+        distribucion_bcg.columns = ['Categoría', 'Cantidad de Productos', 'Unidades Vendidas']
+        
+        # Gráfico de distribución
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig_dist_cat = go.Figure(data=[
+                go.Pie(
+                    labels=distribucion_bcg['Categoría'],
+                    values=distribucion_bcg['Cantidad de Productos'],
+                    hole=0.4,
+                    marker=dict(colors=['#FFD700', '#32CD32', '#1E90FF', '#DC143C'])
+                )
+            ])
+            fig_dist_cat.update_layout(
+                title="Productos por Categoría",
+                height=300,
+                showlegend=True
+            )
+            st.plotly_chart(fig_dist_cat, use_container_width=True)
+        
+        with col2:
+            fig_dist_ventas = go.Figure(data=[
+                go.Pie(
+                    labels=distribucion_bcg['Categoría'],
+                    values=distribucion_bcg['Unidades Vendidas'],
+                    hole=0.4,
+                    marker=dict(colors=['#FFD700', '#32CD32', '#1E90FF', '#DC143C'])
+                )
+            ])
+            fig_dist_ventas.update_layout(
+                title="Ventas por Categoría",
+                height=300,
+                showlegend=True
+            )
+            st.plotly_chart(fig_dist_ventas, use_container_width=True)
         
     else:
         st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
@@ -794,4 +678,3 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
-
