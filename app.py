@@ -4,7 +4,6 @@ import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
 from prophet import Prophet
-from prophet.plot import plot_plotly
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -60,6 +59,11 @@ try:
         9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
     }
     
+    dias_español = {
+        'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles', 
+        'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
+    }
+    
     # Obtener meses disponibles con datos
     meses_con_datos = df_temp.groupby(['año', 'mes_num'])['cantidad'].sum()
     meses_con_datos = meses_con_datos[meses_con_datos > 0].reset_index()
@@ -102,10 +106,6 @@ try:
         st.caption("Intensidad de ventas por día de la semana cada 30 minutos")
         
         dias_orden = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        dias_español = {
-            'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles', 
-            'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
-        }
         
         # Crear matriz por media hora
         ventas_media_hora = df_analisis.groupby(['dia_semana', 'media_hora'])['cantidad'].sum().reset_index()
@@ -199,7 +199,7 @@ try:
         
         st.divider()
         
-        # --- MATRIZ BCG MEJORADA ---
+        # --- MATRIZ BCG SIMPLIFICADA ---
         st.subheader("📊 Matriz BCG - Boston Consulting Group")
         st.caption("Clasifica tus productos según participación de mercado y crecimiento")
         
@@ -532,9 +532,34 @@ try:
                 st.write(f"**Mejor día:** {dia_pico_prod}")
                 st.write(f"**Ventas en pico:** {int(cantidad_dia_pico)} unidades")
         
-    else:
-        st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
-
-except Exception as e:
-    st.error(f"❌ Error al cargar los datos: {e}")
-    st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+        st.divider()
+        
+        # --- PREDICCIÓN CON PROPHET ---
+        st.subheader("🤖 Predicción de Ventas con IA")
+        st.caption("Sistema de predicción basado en Prophet de Meta AI")
+        
+        # Selector de tipo de predicción
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            tipo_prediccion = st.radio(
+                "¿Qué quieres predecir?",
+                ["📊 Ventas Totales", "🏷️ Producto Específico"],
+                horizontal=True
+            )
+        
+        with col2:
+            dias_prediccion = st.selectbox(
+                "Días a predecir:",
+                [7, 14, 30, 60],
+                index=1,
+                help="Selecciona cuántos días hacia adelante quieres predecir"
+            )
+        
+        # Preparar datos según tipo de predicción
+        if tipo_prediccion == "📊 Ventas Totales":
+            st.info("📈 Prediciendo ventas totales del negocio")
+            
+            # Agrupar por fecha
+            df_prophet = df_analisis.copy()
+            df_prophet['ds'] = df_prophet['fecha
