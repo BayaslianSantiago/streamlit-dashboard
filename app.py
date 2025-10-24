@@ -562,7 +562,7 @@ try:
             
             # Agrupar por fecha
             df_prophet = df_analisis.copy()
-            df_prophet['ds'] = df_prophet['fecha_hora'].dt.date
+            df_prophet['ds'] = pd.to_datetime(df_prophet['fecha_hora'])
             df_prophet = df_prophet.groupby('ds')['cantidad'].sum().reset_index()
             df_prophet.columns = ['ds', 'y']
             
@@ -579,7 +579,7 @@ try:
             
             # Filtrar por producto
             df_prophet = df_analisis[df_analisis['producto'] == producto_pred].copy()
-            df_prophet['ds'] = df_prophet['fecha_hora'].dt.date
+            df_prophet['ds'] = pd.to_datetime(df_prophet['fecha_hora'])
             df_prophet = df_prophet.groupby('ds')['cantidad'].sum().reset_index()
             df_prophet.columns = ['ds', 'y']
             
@@ -794,3 +794,4 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+
