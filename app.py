@@ -267,127 +267,94 @@ try:
         
         bcg_data_plot['tasa_crecimiento_plot'] = bcg_data_plot['tasa_crecimiento'].clip(-100, 300)
         
-        # GRÁFICO BCG MEJORADO
+        # GRÁFICO BCG SIMPLIFICADO
         fig_bcg = go.Figure()
         
         categorias = {
-            '⭐ Estrella': {'color': '#FFD700', 'symbol': 'star'},
-            '🐄 Vaca Lechera': {'color': '#32CD32', 'symbol': 'circle'},
-            '❓ Interrogante': {'color': '#1E90FF', 'symbol': 'diamond'},
-            '🐕 Perro': {'color': '#DC143C', 'symbol': 'x'}
+            '⭐ Estrella': '#FFD700',
+            '🐄 Vaca Lechera': '#32CD32',
+            '❓ Interrogante': '#1E90FF',
+            '🐕 Perro': '#DC143C'
         }
         
-        for cat, props in categorias.items():
-            df_cat = bcg_data_plot[bcg_data_plot['categoria'] == cat]
+        # Mostrar solo top productos por categoría para no saturar
+        top_por_categoria = 8
+        
+        for cat, color in categorias.items():
+            df_cat = bcg_data_plot[bcg_data_plot['categoria'] == cat].nlargest(top_por_categoria, 'cantidad')
             if not df_cat.empty:
-                # Escalar tamaños de burbuja de forma más visible
-                sizes = df_cat['cantidad'].values
-                sizes_scaled = 10 + (sizes / sizes.max()) * 50  # Rango de 10 a 60
+                # Tamaños proporcionales más suaves
+                sizes = 15 + (df_cat['cantidad'] / bcg_data_plot['cantidad'].max()) * 35
                 
                 fig_bcg.add_trace(go.Scatter(
                     x=df_cat['participacion'],
                     y=df_cat['tasa_crecimiento_plot'],
-                    mode='markers+text',
+                    mode='markers',
                     name=cat,
                     marker=dict(
-                        size=sizes_scaled,
-                        color=props['color'],
-                        symbol=props['symbol'],
-                        line=dict(width=2, color='white'),
-                        opacity=0.8
+                        size=sizes,
+                        color=color,
+                        line=dict(width=1, color='white'),
+                        opacity=0.7
                     ),
                     text=df_cat['producto'],
-                    textposition='top center',
-                    textfont=dict(size=9, color='black', family='Arial Black'),
-                    customdata=np.column_stack((
-                        df_cat['cantidad'].values,
-                        df_cat['tasa_crecimiento'].values,
-                        df_cat['participacion'].values
-                    )),
                     hovertemplate='<b>%{text}</b><br>' +
-                                  'Participación: %{customdata[2]:.2f}%<br>' +
-                                  'Crecimiento: %{customdata[1]:.1f}%<br>' +
-                                  'Unidades: %{customdata[0]:,}<br>' +
+                                  'Participación: %{x:.2f}%<br>' +
+                                  'Crecimiento: %{y:.1f}%<br>' +
                                   '<extra></extra>'
                 ))
         
-        # Líneas divisorias más visibles
-        fig_bcg.add_hline(y=crecimiento_medio, line_dash="dash", line_color="rgba(0,0,0,0.7)", line_width=3)
-        fig_bcg.add_vline(x=participacion_media, line_dash="dash", line_color="rgba(0,0,0,0.7)", line_width=3)
+        # Líneas divisorias simples
+        fig_bcg.add_hline(y=crecimiento_medio, line_dash="dash", line_color="gray", line_width=2)
+        fig_bcg.add_vline(x=participacion_media, line_dash="dash", line_color="gray", line_width=2)
         
-        # Anotaciones de cuadrantes mejoradas
+        # Etiquetas de cuadrantes simples
         max_x = bcg_data_plot['participacion'].max()
         min_x = bcg_data_plot['participacion'].min()
         max_y = bcg_data_plot['tasa_crecimiento_plot'].max()
         min_y = bcg_data_plot['tasa_crecimiento_plot'].min()
         
-        anotaciones = [
-            {'x': participacion_media + (max_x - participacion_media) * 0.7, 
-             'y': crecimiento_medio + (max_y - crecimiento_medio) * 0.85,
-             'text': "⭐ ESTRELLAS<br><sub>Alta participación + Alto crecimiento</sub><br><sub><b>Estrategia: Invertir</b></sub>",
-             'color': '#FFD700'},
-            {'x': participacion_media + (max_x - participacion_media) * 0.7,
-             'y': min_y + (crecimiento_medio - min_y) * 0.15,
-             'text': "🐄 VACAS LECHERAS<br><sub>Alta participación + Bajo crecimiento</sub><br><sub><b>Estrategia: Mantener</b></sub>",
-             'color': '#32CD32'},
-            {'x': min_x + (participacion_media - min_x) * 0.3,
-             'y': crecimiento_medio + (max_y - crecimiento_medio) * 0.85,
-             'text': "❓ INTERROGANTES<br><sub>Baja participación + Alto crecimiento</sub><br><sub><b>Estrategia: Analizar</b></sub>",
-             'color': '#1E90FF'},
-            {'x': min_x + (participacion_media - min_x) * 0.3,
-             'y': min_y + (crecimiento_medio - min_y) * 0.15,
-             'text': "🐕 PERROS<br><sub>Baja participación + Bajo crecimiento</sub><br><sub><b>Estrategia: Eliminar</b></sub>",
-             'color': '#DC143C'}
-        ]
+        fig_bcg.add_annotation(x=participacion_media + (max_x - participacion_media) * 0.5, 
+                               y=crecimiento_medio + (max_y - crecimiento_medio) * 0.9,
+                               text="⭐ ESTRELLAS", showarrow=False,
+                               font=dict(size=14, color='gray'))
         
-        for anotacion in anotaciones:
-            fig_bcg.add_annotation(
-                x=anotacion['x'], y=anotacion['y'],
-                text=anotacion['text'],
-                showarrow=False,
-                font=dict(size=11, color='white', family='Arial Black'),
-                bgcolor=anotacion['color'],
-                borderpad=10,
-                bordercolor='white',
-                borderwidth=2,
-                opacity=0.9
-            )
+        fig_bcg.add_annotation(x=participacion_media + (max_x - participacion_media) * 0.5,
+                               y=min_y + (crecimiento_medio - min_y) * 0.1,
+                               text="🐄 VACAS LECHERAS", showarrow=False,
+                               font=dict(size=14, color='gray'))
+        
+        fig_bcg.add_annotation(x=min_x + (participacion_media - min_x) * 0.5,
+                               y=crecimiento_medio + (max_y - crecimiento_medio) * 0.9,
+                               text="❓ INTERROGANTES", showarrow=False,
+                               font=dict(size=14, color='gray'))
+        
+        fig_bcg.add_annotation(x=min_x + (participacion_media - min_x) * 0.5,
+                               y=min_y + (crecimiento_medio - min_y) * 0.1,
+                               text="🐕 PERROS", showarrow=False,
+                               font=dict(size=14, color='gray'))
         
         fig_bcg.update_layout(
-            height=750,
+            height=600,
             showlegend=True,
             legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.12,
-                xanchor="center",
-                x=0.5,
-                font=dict(size=13, family='Arial Black'),
-                bgcolor='rgba(255,255,255,0.9)',
-                bordercolor='black',
-                borderwidth=2
+                orientation="v",
+                yanchor="top",
+                y=1,
+                xanchor="left",
+                x=1.02,
+                font=dict(size=12)
             ),
-            plot_bgcolor='rgba(245,245,245,1)',
+            plot_bgcolor='white',
             xaxis=dict(
                 title="Participación de Mercado (%)",
-                gridcolor='rgba(200,200,200,0.5)',
-                zeroline=True,
-                zerolinewidth=2,
-                zerolinecolor='black',
-                title_font=dict(size=14, family='Arial Black')
+                gridcolor='lightgray',
+                showgrid=True
             ),
             yaxis=dict(
                 title="Tasa de Crecimiento (%)",
-                gridcolor='rgba(200,200,200,0.5)',
-                zeroline=True,
-                zerolinewidth=2,
-                zerolinecolor='black',
-                title_font=dict(size=14, family='Arial Black')
-            ),
-            hoverlabel=dict(
-                bgcolor="white",
-                font_size=12,
-                font_family="Arial"
+                gridcolor='lightgray',
+                showgrid=True
             )
         )
         
