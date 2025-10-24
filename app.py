@@ -3,6 +3,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
+from prophet import Prophet
+from prophet.plot import plot_plotly
+import warnings
+warnings.filterwarnings('ignore')
 
 # URL del CSV en GitHub
 DATA_URL = "https://raw.githubusercontent.com/BayaslianSantiago/streamlit-dashboard/refs/heads/main/datos.csv"
