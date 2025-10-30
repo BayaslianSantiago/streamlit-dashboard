@@ -3,6 +3,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
+from prophet import Prophet
+from datetime import datetime, timedelta
+import warnings
+warnings.filterwarnings('ignore')
 
 # URL del CSV en GitHub
 DATA_URL = "https://raw.githubusercontent.com/BayaslianSantiago/streamlit-dashboard/refs/heads/main/datos.csv"
@@ -102,11 +106,12 @@ try:
     # --- TABS PRINCIPALES ---
     if not df_analisis.empty:
         
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📈 Resumen General", 
             "🔥 Análisis de Horarios", 
             "📊 Análisis de Productos",
-            "🔍 Búsqueda Detallada"
+            "🔍 Búsqueda Detallada",
+            "🔮 Predicción"
         ])
         
         # ========== TAB 1: RESUMEN GENERAL ==========
@@ -695,6 +700,297 @@ try:
                         cantidad_dia_pico = ventas_dia.max()
                         st.write(f"**Mejor día:** {dia_pico_prod}")
                         st.write(f"**Ventas en pico:** {int(cantidad_dia_pico)} unidades")
+        
+        # ========== TAB 5: PREDICCIÓN ==========
+        with tab5:
+            st.markdown("### 🔮 Predicción de Ventas con IA")
+            st.caption("Predicción inteligente basada en patrones históricos usando Prophet")
+            
+            # Verificar que haya suficientes datos
+            dias_unicos = df_analisis['fecha_hora'].dt.date.nunique()
+            
+            if dias_unicos < 14:
+                st.warning("⚠️ Se necesitan al menos 14 días de datos históricos para generar predicciones confiables")
+                st.info(f"Actualmente tienes {dias_unicos} días de datos. Intenta seleccionar 'Todos los datos' o un período más amplio.")
+            else:
+                # Selector de fecha a predecir
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    fecha_max = df_analisis['fecha_hora'].max().date()
+                    fecha_min_pred = fecha_max + timedelta(days=1)
+                    fecha_max_pred = fecha_max + timedelta(days=30)
+                    
+                    fecha_prediccion = st.date_input(
+                        "Selecciona la fecha a predecir:",
+                        value=fecha_min_pred,
+                        min_value=fecha_min_pred,
+                        max_value=fecha_max_pred,
+                        help="Elige un día futuro para ver las ventas esperadas"
+                    )
+                
+                with col2:
+                    tipo_pred = st.radio(
+                        "Tipo de predicción:",
+                        ["📊 Ventas Totales", "🏷️ Por Producto"],
+                        help="Predice ventas totales o de un producto específico"
+                    )
+                
+                # Selector de producto si es necesario
+                producto_pred = None
+                if tipo_pred == "🏷️ Por Producto":
+                    producto_pred = st.selectbox(
+                        "Selecciona el producto:",
+                        sorted(df_analisis['producto'].unique())
+                    )
+                
+                # Botón para generar predicción
+                if st.button("🚀 Generar Predicción del Día", type="primary", use_container_width=True):
+                    with st.spinner("🤖 Analizando patrones históricos y generando predicción..."):
+                        try:
+                            # Preparar datos para Prophet
+                            if tipo_pred == "📊 Ventas Totales":
+                                df_prophet = df_analisis.copy()
+                                titulo_pred = "Ventas Totales"
+                            else:
+                                df_prophet = df_analisis[df_analisis['producto'] == producto_pred].copy()
+                                titulo_pred = producto_pred
+                            
+                            # Agrupar por fecha y hora
+                            df_prophet['fecha'] = df_prophet['fecha_hora'].dt.date
+                            df_prophet['hora'] = df_prophet['fecha_hora'].dt.hour
+                            
+                            # Crear dataset por hora para el modelo
+                            df_hourly = df_prophet.groupby(['fecha', 'hora'])['cantidad'].sum().reset_index()
+                            df_hourly['ds'] = pd.to_datetime(df_hourly['fecha'].astype(str) + ' ' + df_hourly['hora'].astype(str) + ':00:00')
+                            df_hourly = df_hourly[['ds', 'cantidad']].rename(columns={'cantidad': 'y'})
+                            
+                            # Entrenar modelo Prophet
+                            model = Prophet(
+                                daily_seasonality=True,
+                                weekly_seasonality=True,
+                                yearly_seasonality=False,
+                                changepoint_prior_scale=0.05,
+                                seasonality_prior_scale=10,
+                                interval_width=0.95
+                            )
+                            
+                            model.fit(df_hourly)
+                            
+                            # Generar predicción para el día seleccionado
+                            fecha_pred_dt = pd.to_datetime(fecha_prediccion)
+                            future_hours = pd.DataFrame({
+                                'ds': [fecha_pred_dt + timedelta(hours=h) for h in range(24)]
+                            })
+                            
+                            forecast = model.predict(future_hours)
+                            forecast['hora'] = forecast['ds'].dt.hour
+                            
+                            # Asegurar que no haya valores negativos
+                            forecast['yhat'] = forecast['yhat'].clip(lower=0)
+                            forecast['yhat_lower'] = forecast['yhat_lower'].clip(lower=0)
+                            forecast['yhat_upper'] = forecast['yhat_upper'].clip(lower=0)
+                            
+                            st.success(f"✅ Predicción completada para {fecha_prediccion.strftime('%d/%m/%Y')}")
+                            
+                            # Calcular métricas
+                            total_predicho = forecast['yhat'].sum()
+                            hora_pico_pred = forecast.loc[forecast['yhat'].idxmax(), 'hora']
+                            ventas_pico = forecast['yhat'].max()
+                            promedio_hora = forecast['yhat'].mean()
+                            
+                            # Obtener día de la semana
+                            dia_semana_pred = fecha_pred_dt.day_name()
+                            dia_semana_esp = dias_español[dia_semana_pred]
+                            
+                            # Comparar con promedio histórico del mismo día de la semana
+                            ventas_historicas_dia = df_analisis[df_analisis['dia_semana'] == dia_semana_pred]['cantidad'].sum()
+                            dias_historicos = df_analisis[df_analisis['dia_semana'] == dia_semana_pred]['fecha_hora'].dt.date.nunique()
+                            promedio_historico = ventas_historicas_dia / dias_historicos if dias_historicos > 0 else 0
+                            
+                            diferencia_pct = ((total_predicho - promedio_historico) / promedio_historico * 100) if promedio_historico > 0 else 0
+                            
+                            # Métricas principales
+                            st.markdown(f"#### 📅 Predicción para {dia_semana_esp} {fecha_prediccion.strftime('%d/%m/%Y')}")
+                            
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric(
+                                    "📦 Total Esperado",
+                                    f"{total_predicho:.0f} unidades",
+                                    delta=f"{diferencia_pct:+.1f}% vs promedio",
+                                    help="Total de unidades que se espera vender en el día"
+                                )
+                            
+                            with col2:
+                                st.metric(
+                                    "🕐 Hora Pico",
+                                    f"{int(hora_pico_pred)}:00 hs",
+                                    help="Hora con mayor venta esperada"
+                                )
+                            
+                            with col3:
+                                st.metric(
+                                    "🔥 Ventas en Pico",
+                                    f"{ventas_pico:.0f} unidades",
+                                    help="Cantidad esperada en la hora pico"
+                                )
+                            
+                            with col4:
+                                st.metric(
+                                    "📊 Promedio por Hora",
+                                    f"{promedio_hora:.1f} unidades",
+                                    help="Promedio esperado por hora"
+                                )
+                            
+                            st.divider()
+                            
+                            # Gráfico de predicción por hora
+                            st.markdown("#### 📈 Predicción por Hora del Día")
+                            
+                            fig_pred_hora = go.Figure()
+                            
+                            # Predicción
+                            fig_pred_hora.add_trace(go.Scatter(
+                                x=forecast['hora'],
+                                y=forecast['yhat'],
+                                mode='lines+markers',
+                                name='Predicción',
+                                line=dict(color='#FF6B6B', width=3),
+                                marker=dict(size=8),
+                                fill='tozeroy',
+                                fillcolor='rgba(255,107,107,0.2)'
+                            ))
+                            
+                            # Intervalo de confianza
+                            fig_pred_hora.add_trace(go.Scatter(
+                                x=forecast['hora'].tolist() + forecast['hora'].tolist()[::-1],
+                                y=forecast['yhat_upper'].tolist() + forecast['yhat_lower'].tolist()[::-1],
+                                fill='toself',
+                                fillcolor='rgba(255,107,107,0.1)',
+                                line=dict(color='rgba(255,255,255,0)'),
+                                showlegend=True,
+                                name='Intervalo de Confianza'
+                            ))
+                            
+                            fig_pred_hora.update_layout(
+                                xaxis_title="Hora del Día",
+                                yaxis_title="Unidades Esperadas",
+                                height=400,
+                                hovermode='x unified',
+                                xaxis=dict(dtick=2)
+                            )
+                            
+                            st.plotly_chart(fig_pred_hora, use_container_width=True)
+                            
+                            # Crear heatmap predictivo (simulando un día completo por media hora)
+                            st.markdown("#### 🔥 Heatmap Predictivo del Día")
+                            st.caption("Intensidad de ventas esperada por hora")
+                            
+                            # Crear matriz para heatmap (1 fila = el día predicho)
+                            heatmap_data = forecast[['hora', 'yhat']].copy()
+                            heatmap_data = heatmap_data.set_index('hora').T
+                            
+                            fig_heatmap_pred = go.Figure(data=go.Heatmap(
+                                z=heatmap_data.values,
+                                x=[f"{int(h)}:00" for h in heatmap_data.columns],
+                                y=[f"{dia_semana_esp} {fecha_prediccion.strftime('%d/%m')}"],
+                                colorscale='YlOrRd',
+                                text=heatmap_data.values.astype(int),
+                                texttemplate='%{text}',
+                                textfont={"size": 10},
+                                colorbar=dict(title="Unidades<br>esperadas")
+                            ))
+                            
+                            fig_heatmap_pred.update_layout(
+                                xaxis_title="Hora del Día",
+                                height=200,
+                                xaxis=dict(tickangle=-45)
+                            )
+                            
+                            st.plotly_chart(fig_heatmap_pred, use_container_width=True)
+                            
+                            # Tabla detallada
+                            with st.expander("📋 Ver Predicción Detallada por Hora", expanded=False):
+                                tabla_pred = forecast[['hora', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+                                tabla_pred.columns = ['Hora', 'Predicción', 'Mínimo Esperado', 'Máximo Esperado']
+                                tabla_pred['Hora'] = tabla_pred['Hora'].apply(lambda x: f"{int(x)}:00")
+                                tabla_pred['Predicción'] = tabla_pred['Predicción'].round(1)
+                                tabla_pred['Mínimo Esperado'] = tabla_pred['Mínimo Esperado'].round(1)
+                                tabla_pred['Máximo Esperado'] = tabla_pred['Máximo Esperado'].round(1)
+                                
+                                st.dataframe(tabla_pred, use_container_width=True, hide_index=True)
+                            
+                            st.divider()
+                            
+                            # RECOMENDACIONES AUTOMÁTICAS
+                            st.markdown("#### 💡 Recomendaciones Automáticas")
+                            
+                            recomendaciones = []
+                            
+                            # Recomendación 1: Nivel de actividad esperado
+                            if diferencia_pct > 15:
+                                recomendaciones.append({
+                                    "tipo": "🔥 ALTA DEMANDA",
+                                    "mensaje": f"Se espera un día con ventas **{diferencia_pct:.1f}% superiores** al promedio de {dias_español[dia_semana_pred]}s.",
+                                    "accion": "• Asegurar stock suficiente\n• Considerar personal adicional\n• Preparar productos con anticipación"
+                                })
+                            elif diferencia_pct < -15:
+                                recomendaciones.append({
+                                    "tipo": "📉 BAJA DEMANDA",
+                                    "mensaje": f"Se espera un día con ventas **{abs(diferencia_pct):.1f}% inferiores** al promedio de {dias_español[dia_semana_pred]}s.",
+                                    "accion": "• Ajustar cantidad de personal\n• Ideal para tareas administrativas\n• Considerar promociones especiales"
+                                })
+                            else:
+                                recomendaciones.append({
+                                    "tipo": "➡️ DEMANDA NORMAL",
+                                    "mensaje": f"Se espera un día con ventas similares al promedio de {dias_español[dia_semana_pred]}s (variación del {diferencia_pct:+.1f}%).",
+                                    "accion": "• Mantener operación estándar\n• Stock regular"
+                                })
+                            
+                            # Recomendación 2: Gestión de hora pico
+                            horas_altas = forecast[forecast['yhat'] > forecast['yhat'].quantile(0.75)]['hora'].values
+                            if len(horas_altas) > 0:
+                                horas_str = ", ".join([f"{int(h)}:00" for h in sorted(horas_altas)])
+                                recomendaciones.append({
+                                    "tipo": "⏰ HORARIOS CRÍTICOS",
+                                    "mensaje": f"Horas con mayor demanda esperada: **{horas_str}**",
+                                    "accion": f"• Máximo personal entre {int(horas_altas.min())}:00 y {int(horas_altas.max())}:00\n• Productos más demandados en lugares accesibles\n• Priorizar atención rápida"
+                                })
+                            
+                            # Recomendación 3: Horarios tranquilos
+                            horas_bajas = forecast[forecast['yhat'] < forecast['yhat'].quantile(0.25)]['hora'].values
+                            if len(horas_bajas) > 0:
+                                horas_str_bajas = ", ".join([f"{int(h)}:00" for h in sorted(horas_bajas)])
+                                recomendaciones.append({
+                                    "tipo": "🕐 HORARIOS TRANQUILOS",
+                                    "mensaje": f"Horas con menor demanda esperada: **{horas_str_bajas}**",
+                                    "accion": "• Reducir personal en estos horarios\n• Ideal para limpieza y reposición\n• Descansos del equipo"
+                                })
+                            
+                            # Recomendación 4: Stock recomendado
+                            stock_recomendado = total_predicho * 1.2  # 20% de margen
+                            recomendaciones.append({
+                                "tipo": "📦 GESTIÓN DE STOCK",
+                                "mensaje": f"Stock recomendado: **{stock_recomendado:.0f} unidades** (con 20% de margen de seguridad)",
+                                "accion": "• Verificar inventario el día anterior\n• Priorizar productos de alta rotación\n• Preparar backup para la hora pico"
+                            })
+                            
+                            # Mostrar recomendaciones
+                            for rec in recomendaciones:
+                                with st.container():
+                                    st.markdown(f"**{rec['tipo']}**")
+                                    st.info(rec['mensaje'])
+                                    st.markdown(rec['accion'])
+                                    st.markdown("---")
+                            
+                            # Insight final
+                            st.success(f"💼 **Resumen Ejecutivo:** Este {dia_semana_esp} se esperan {total_predicho:.0f} unidades vendidas, con pico a las {int(hora_pico_pred)}:00. {'Prepárate para alta demanda.' if diferencia_pct > 15 else 'Día dentro de lo normal.' if abs(diferencia_pct) <= 15 else 'Aprovecha para optimizar operaciones.'}")
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error al generar predicción: {str(e)}")
+                            st.info("💡 Intenta con un período más amplio de datos históricos o verifica la calidad de los datos")
         
     else:
         st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
