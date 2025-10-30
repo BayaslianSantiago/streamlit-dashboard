@@ -3,10 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
-from prophet import Prophet
-from datetime import datetime, timedelta
-import warnings
-warnings.filterwarnings('ignore')
+from itertools import combinations
+from collections import Counter
 
 # URL del CSV en GitHub
 DATA_URL = "https://raw.githubusercontent.com/BayaslianSantiago/streamlit-dashboard/refs/heads/main/datos.csv"
@@ -111,7 +109,7 @@ try:
             "🔥 Análisis de Horarios", 
             "📊 Análisis de Productos",
             "🔍 Búsqueda Detallada",
-            "🔮 Predicción"
+            "🛒 Análisis de Canastas"
         ])
         
         # ========== TAB 1: RESUMEN GENERAL ==========
@@ -701,306 +699,249 @@ try:
                         st.write(f"**Mejor día:** {dia_pico_prod}")
                         st.write(f"**Ventas en pico:** {int(cantidad_dia_pico)} unidades")
         
-        # ========== TAB 5: PREDICCIÓN ==========
+        # ========== TAB 5: ANÁLISIS DE CANASTAS ==========
         with tab5:
-            st.markdown("### 🔮 Predicción de Ventas con IA")
-            st.caption("Predicción inteligente basada en patrones históricos usando Prophet")
+            st.markdown("### 🛒 Análisis de Canastas de Compra")
+            st.caption("Descubre qué productos se compran juntos en la misma transacción")
             
-            # Verificar que haya suficientes datos
-            dias_unicos = df_analisis['fecha_hora'].dt.date.nunique()
+            # Agrupar productos vendidos en la misma fecha y hora (misma transacción)
+            df_transacciones = df_analisis.copy()
+            df_transacciones['transaccion_id'] = df_transacciones['fecha_hora'].astype(str)
             
-            if dias_unicos < 14:
-                st.warning("⚠️ Se necesitan al menos 14 días de datos históricos para generar predicciones confiables")
-                st.info(f"Actualmente tienes {dias_unicos} días de datos. Intenta seleccionar 'Todos los datos' o un período más amplio.")
+            # Crear canastas: productos agrupados por transacción
+            canastas = df_transacciones.groupby('transaccion_id')['producto'].apply(list).reset_index()
+            canastas['num_productos'] = canastas['producto'].apply(len)
+            
+            # Filtrar solo transacciones con más de 1 producto
+            canastas_multiples = canastas[canastas['num_productos'] > 1].copy()
+            
+            # Métricas generales
+            st.markdown("#### 📊 Estadísticas Generales")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            total_transacciones = len(canastas)
+            transacciones_multiples = len(canastas_multiples)
+            pct_multiples = (transacciones_multiples / total_transacciones * 100) if total_transacciones > 0 else 0
+            promedio_productos = canastas['num_productos'].mean()
+            
+            with col1:
+                st.metric(
+                    "🛒 Total Transacciones",
+                    f"{total_transacciones:,}",
+                    help="Número total de compras registradas"
+                )
+            
+            with col2:
+                st.metric(
+                    "📦 Transacciones Múltiples",
+                    f"{transacciones_multiples:,}",
+                    delta=f"{pct_multiples:.1f}%",
+                    help="Compras con más de 1 producto"
+                )
+            
+            with col3:
+                st.metric(
+                    "📊 Promedio Productos/Venta",
+                    f"{promedio_productos:.1f}",
+                    help="Cantidad promedio de productos por transacción"
+                )
+            
+            with col4:
+                max_productos = canastas['num_productos'].max()
+                st.metric(
+                    "🎯 Máximo en una Venta",
+                    f"{max_productos}",
+                    help="Mayor cantidad de productos en una sola transacción"
+                )
+            
+            st.divider()
+            
+            if len(canastas_multiples) == 0:
+                st.warning("⚠️ No se encontraron transacciones con múltiples productos en el período seleccionado")
             else:
-                # Selector de fecha a predecir
-                col1, col2 = st.columns([2, 1])
+                # Encontrar pares de productos más frecuentes
+                st.markdown("#### 🔗 Productos que se Compran Juntos")
                 
-                with col1:
-                    fecha_max = df_analisis['fecha_hora'].max().date()
-                    fecha_min_pred = fecha_max + timedelta(days=1)
-                    fecha_max_pred = fecha_max + timedelta(days=30)
+                # Calcular todas las combinaciones de pares
+                pares = []
+                for productos in canastas_multiples['producto']:
+                    if len(productos) >= 2:
+                        # Generar todos los pares posibles
+                        for combo in combinations(sorted(productos), 2):
+                            pares.append(combo)
+                
+                # Contar frecuencia de cada par
+                contador_pares = Counter(pares)
+                top_pares = contador_pares.most_common(20)
+                
+                if len(top_pares) > 0:
+                    # Selector de cantidad a mostrar
+                    num_mostrar = st.slider(
+                        "Cantidad de combinaciones a mostrar:",
+                        min_value=5,
+                        max_value=min(20, len(top_pares)),
+                        value=min(10, len(top_pares)),
+                        step=5
+                    )
                     
-                    fecha_prediccion = st.date_input(
-                        "Selecciona la fecha a predecir:",
-                        value=fecha_min_pred,
-                        min_value=fecha_min_pred,
-                        max_value=fecha_max_pred,
-                        help="Elige un día futuro para ver las ventas esperadas"
+                    # Crear dataframe de pares
+                    df_pares = pd.DataFrame(top_pares[:num_mostrar], columns=['Par', 'Frecuencia'])
+                    df_pares['Producto 1'] = df_pares['Par'].apply(lambda x: x[0])
+                    df_pares['Producto 2'] = df_pares['Par'].apply(lambda x: x[1])
+                    
+                    # Calcular soporte (% de transacciones que contienen este par)
+                    df_pares['Soporte (%)'] = (df_pares['Frecuencia'] / len(canastas_multiples) * 100).round(2)
+                    
+                    # Gráfico de barras
+                    df_pares['Combinación'] = df_pares.apply(
+                        lambda row: f"{row['Producto 1'][:20]} + {row['Producto 2'][:20]}", 
+                        axis=1
                     )
-                
-                with col2:
-                    tipo_pred = st.radio(
-                        "Tipo de predicción:",
-                        ["📊 Ventas Totales", "🏷️ Por Producto"],
-                        help="Predice ventas totales o de un producto específico"
+                    
+                    fig_pares = go.Figure(data=[
+                        go.Bar(
+                            y=df_pares['Combinación'][::-1],
+                            x=df_pares['Frecuencia'][::-1],
+                            orientation='h',
+                            marker_color='#1E90FF',
+                            text=df_pares['Frecuencia'][::-1],
+                            textposition='auto',
+                            hovertemplate='<b>%{y}</b><br>Frecuencia: %{x}<extra></extra>'
+                        )
+                    ])
+                    
+                    fig_pares.update_layout(
+                        title="Top Combinaciones de Productos",
+                        xaxis_title="Frecuencia (veces que se compraron juntos)",
+                        yaxis_title="",
+                        height=max(400, num_mostrar * 40),
+                        showlegend=False
                     )
-                
-                # Selector de producto si es necesario
-                producto_pred = None
-                if tipo_pred == "🏷️ Por Producto":
-                    producto_pred = st.selectbox(
-                        "Selecciona el producto:",
-                        sorted(df_analisis['producto'].unique())
-                    )
-                
-                # Botón para generar predicción
-                if st.button("🚀 Generar Predicción del Día", type="primary", use_container_width=True):
-                    with st.spinner("🤖 Analizando patrones históricos y generando predicción..."):
-                        try:
-                            # Preparar datos para Prophet
-                            if tipo_pred == "📊 Ventas Totales":
-                                df_prophet = df_analisis.copy()
-                                titulo_pred = "Ventas Totales"
-                            else:
-                                df_prophet = df_analisis[df_analisis['producto'] == producto_pred].copy()
-                                titulo_pred = producto_pred
-                            
-                            # Agrupar por fecha y hora
-                            df_prophet['fecha'] = df_prophet['fecha_hora'].dt.date
-                            df_prophet['hora'] = df_prophet['fecha_hora'].dt.hour
-                            
-                            # Crear dataset por hora para el modelo
-                            df_hourly = df_prophet.groupby(['fecha', 'hora'])['cantidad'].sum().reset_index()
-                            df_hourly['ds'] = pd.to_datetime(df_hourly['fecha'].astype(str) + ' ' + df_hourly['hora'].astype(str) + ':00:00')
-                            df_hourly = df_hourly[['ds', 'cantidad']].rename(columns={'cantidad': 'y'})
-                            
-                            # Entrenar modelo Prophet
-                            model = Prophet(
-                                daily_seasonality=True,
-                                weekly_seasonality=True,
-                                yearly_seasonality=False,
-                                changepoint_prior_scale=0.05,
-                                seasonality_prior_scale=10,
-                                interval_width=0.95
-                            )
-                            
-                            model.fit(df_hourly)
-                            
-                            # Generar predicción para el día seleccionado (solo horario de operación)
-                            fecha_pred_dt = pd.to_datetime(fecha_prediccion)
-                            
-                            # Horario de operación: 9:30 a 20:30
-                            horas_operacion = []
-                            for h in range(9, 21):  # De 9 a 20
-                                if h == 9:
-                                    horas_operacion.append(fecha_pred_dt + timedelta(hours=9, minutes=30))
-                                else:
-                                    horas_operacion.append(fecha_pred_dt + timedelta(hours=h))
-                            
-                            future_hours = pd.DataFrame({'ds': horas_operacion})
-                            
-                            forecast = model.predict(future_hours)
-                            forecast['hora'] = forecast['ds'].dt.hour + forecast['ds'].dt.minute / 60  # Hora decimal
-                            forecast['hora_display'] = forecast['ds'].dt.strftime('%H:%M')
-                            
-                            # Asegurar que no haya valores negativos
-                            forecast['yhat'] = forecast['yhat'].clip(lower=0)
-                            forecast['yhat_lower'] = forecast['yhat_lower'].clip(lower=0)
-                            forecast['yhat_upper'] = forecast['yhat_upper'].clip(lower=0)
-                            
-                            st.success(f"✅ Predicción completada para {fecha_prediccion.strftime('%d/%m/%Y')}")
-                            
-                            # Calcular métricas
-                            total_predicho = forecast['yhat'].sum()
-                            idx_pico = forecast['yhat'].idxmax()
-                            hora_pico_pred = forecast.loc[idx_pico, 'hora_display']
-                            ventas_pico = forecast['yhat'].max()
-                            promedio_hora = forecast['yhat'].mean()
-                            
-                            # Obtener día de la semana
-                            dia_semana_pred = fecha_pred_dt.day_name()
-                            dia_semana_esp = dias_español[dia_semana_pred]
-                            
-                            # Comparar con promedio histórico del mismo día de la semana
-                            ventas_historicas_dia = df_analisis[df_analisis['dia_semana'] == dia_semana_pred]['cantidad'].sum()
-                            dias_historicos = df_analisis[df_analisis['dia_semana'] == dia_semana_pred]['fecha_hora'].dt.date.nunique()
-                            promedio_historico = ventas_historicas_dia / dias_historicos if dias_historicos > 0 else 0
-                            
-                            diferencia_pct = ((total_predicho - promedio_historico) / promedio_historico * 100) if promedio_historico > 0 else 0
-                            
-                            # Métricas principales
-                            st.markdown(f"#### 📅 Predicción para {dia_semana_esp} {fecha_prediccion.strftime('%d/%m/%Y')}")
-                            
-                            col1, col2, col3, col4 = st.columns(4)
-                            
-                            with col1:
-                                st.metric(
-                                    "📦 Total Esperado",
-                                    f"{total_predicho:.0f} unidades",
-                                    delta=f"{diferencia_pct:+.1f}% vs promedio",
-                                    help="Total de unidades que se espera vender en el día"
-                                )
-                            
-                            with col2:
-                                st.metric(
-                                    "🕐 Hora Pico",
-                                    f"{hora_pico_pred}",
-                                    help="Hora con mayor venta esperada"
-                                )
-                            
-                            with col3:
-                                st.metric(
-                                    "🔥 Ventas en Pico",
-                                    f"{ventas_pico:.0f} unidades",
-                                    help="Cantidad esperada en la hora pico"
-                                )
-                            
-                            with col4:
-                                st.metric(
-                                    "📊 Promedio por Hora",
-                                    f"{promedio_hora:.1f} unidades",
-                                    help="Promedio esperado por hora"
-                                )
-                            
-                            st.divider()
-                            
-                            # Gráfico de predicción por hora
-                            st.markdown("#### 📈 Predicción por Hora del Día")
-                            st.caption("Horario de operación: 9:30 - 20:30")
-                            
-                            fig_pred_hora = go.Figure()
-                            
-                            # Predicción
-                            fig_pred_hora.add_trace(go.Scatter(
-                                x=forecast['hora_display'],
-                                y=forecast['yhat'],
+                    
+                    st.plotly_chart(fig_pares, use_container_width=True)
+                    
+                    # Tabla detallada
+                    st.markdown("#### 📋 Tabla Detallada de Combinaciones")
+                    
+                    tabla_pares = df_pares[['Producto 1', 'Producto 2', 'Frecuencia', 'Soporte (%)']].copy()
+                    st.dataframe(tabla_pares, use_container_width=True, hide_index=True)
+                    
+                    st.divider()
+                    
+                    # Análisis de triples (si existen)
+                    st.markdown("#### 🎯 Combinaciones de 3 Productos")
+                    
+                    triples = []
+                    for productos in canastas_multiples['producto']:
+                        if len(productos) >= 3:
+                            for combo in combinations(sorted(productos), 3):
+                                triples.append(combo)
+                    
+                    if len(triples) > 0:
+                        contador_triples = Counter(triples)
+                        top_triples = contador_triples.most_common(10)
+                        
+                        df_triples = pd.DataFrame(top_triples, columns=['Triple', 'Frecuencia'])
+                        df_triples['Producto 1'] = df_triples['Triple'].apply(lambda x: x[0])
+                        df_triples['Producto 2'] = df_triples['Triple'].apply(lambda x: x[1])
+                        df_triples['Producto 3'] = df_triples['Triple'].apply(lambda x: x[2])
+                        df_triples['Soporte (%)'] = (df_triples['Frecuencia'] / len(canastas_multiples) * 100).round(2)
+                        
+                        tabla_triples = df_triples[['Producto 1', 'Producto 2', 'Producto 3', 'Frecuencia', 'Soporte (%)']].copy()
+                        st.dataframe(tabla_triples, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No se encontraron transacciones con 3 o más productos diferentes")
+                    
+                    st.divider()
+                    
+                    # RECOMENDACIONES AUTOMÁTICAS
+                    st.markdown("#### 💡 Recomendaciones de Negocio")
+                    
+                    recomendaciones = []
+                    
+                    # Top combo
+                    top_combo = df_pares.iloc[0]
+                    recomendaciones.append({
+                        "tipo": "🏆 COMBO MÁS POPULAR",
+                        "mensaje": f"**{top_combo['Producto 1']}** + **{top_combo['Producto 2']}**",
+                        "detalle": f"Se compran juntos en {top_combo['Frecuencia']} ocasiones ({top_combo['Soporte (%)']}% de las transacciones)",
+                        "accion": "• Crear promoción de combo\n• Colocar productos cercanos físicamente\n• Destacar en marketing"
+                    })
+                    
+                    # Oportunidades de cross-selling
+                    if len(df_pares) >= 3:
+                        recomendaciones.append({
+                            "tipo": "🎯 OPORTUNIDADES DE CROSS-SELLING",
+                            "mensaje": f"Identificadas **{num_mostrar}** combinaciones frecuentes",
+                            "detalle": "Productos con alta afinidad que se pueden potenciar",
+                            "accion": "• Entrenar al personal para sugerir estos productos\n• Crear paquetes promocionales\n• Señalización en punto de venta"
+                        })
+                    
+                    # Análisis de ticket promedio
+                    ticket_simple = canastas[canastas['num_productos'] == 1]['num_productos'].count()
+                    if transacciones_multiples > ticket_simple:
+                        recomendaciones.append({
+                            "tipo": "📈 ESTRATEGIA DE TICKET PROMEDIO",
+                            "mensaje": f"**{pct_multiples:.1f}%** de tus clientes compran múltiples productos",
+                            "detalle": f"Hay {transacciones_multiples:,} transacciones con más de 1 producto",
+                            "accion": "• Incentivos para compras múltiples\n• Descuentos por volumen\n• Bundling estratégico"
+                        })
+                    
+                    # Mostrar recomendaciones
+                    for rec in recomendaciones:
+                        with st.container():
+                            st.markdown(f"**{rec['tipo']}**")
+                            st.success(rec['mensaje'])
+                            st.info(rec['detalle'])
+                            st.markdown(rec['accion'])
+                            st.markdown("---")
+                    
+                    # Análisis por horario
+                    with st.expander("🕐 Ver Análisis de Canastas por Horario", expanded=False):
+                        st.markdown("##### Tamaño de Canasta por Hora del Día")
+                        
+                        df_trans_hora = df_analisis.copy()
+                        df_trans_hora['hora'] = df_trans_hora['fecha_hora'].dt.hour
+                        df_trans_hora['transaccion_id'] = df_trans_hora['fecha_hora'].astype(str)
+                        
+                        productos_por_hora = df_trans_hora.groupby(['transaccion_id', 'hora']).size().reset_index(name='productos_en_canasta')
+                        promedio_por_hora = productos_por_hora.groupby('hora')['productos_en_canasta'].mean().reset_index()
+                        
+                        fig_hora = go.Figure(data=[
+                            go.Scatter(
+                                x=promedio_por_hora['hora'],
+                                y=promedio_por_hora['productos_en_canasta'],
                                 mode='lines+markers',
-                                name='Predicción',
-                                line=dict(color='#FF6B6B', width=3),
+                                line=dict(color='#32CD32', width=3),
                                 marker=dict(size=8),
                                 fill='tozeroy',
-                                fillcolor='rgba(255,107,107,0.2)',
-                                text=[f"{v:.0f} unidades" for v in forecast['yhat']],
-                                hovertemplate='<b>%{x}</b><br>%{text}<extra></extra>'
-                            ))
-                            
-                            # Intervalo de confianza
-                            fig_pred_hora.add_trace(go.Scatter(
-                                x=forecast['hora_display'].tolist() + forecast['hora_display'].tolist()[::-1],
-                                y=forecast['yhat_upper'].tolist() + forecast['yhat_lower'].tolist()[::-1],
-                                fill='toself',
-                                fillcolor='rgba(255,107,107,0.1)',
-                                line=dict(color='rgba(255,255,255,0)'),
-                                showlegend=True,
-                                name='Intervalo de Confianza',
-                                hoverinfo='skip'
-                            ))
-                            
-                            fig_pred_hora.update_layout(
-                                xaxis_title="Hora del Día",
-                                yaxis_title="Unidades Esperadas",
-                                height=400,
-                                hovermode='x unified',
-                                xaxis=dict(tickangle=-45)
+                                fillcolor='rgba(50,205,50,0.2)'
                             )
-                            
-                            st.plotly_chart(fig_pred_hora, use_container_width=True)
-                            
-                            # Crear heatmap predictivo (simulando un día completo por media hora)
-                            st.markdown("#### 🔥 Heatmap Predictivo del Día")
-                            st.caption("Intensidad de ventas esperada durante horario de operación (9:30 - 20:30)")
-                            
-                            # Crear matriz para heatmap (1 fila = el día predicho)
-                            heatmap_data = forecast[['hora_display', 'yhat']].copy()
-                            heatmap_data = heatmap_data.set_index('hora_display').T
-                            
-                            fig_heatmap_pred = go.Figure(data=go.Heatmap(
-                                z=heatmap_data.values,
-                                x=heatmap_data.columns,
-                                y=[f"{dia_semana_esp} {fecha_prediccion.strftime('%d/%m')}"],
-                                colorscale='YlOrRd',
-                                text=heatmap_data.values.astype(int),
-                                texttemplate='%{text}',
-                                textfont={"size": 10},
-                                colorbar=dict(title="Unidades<br>esperadas")
-                            ))
-                            
-                            fig_heatmap_pred.update_layout(
-                                xaxis_title="Hora del Día",
-                                height=200,
-                                xaxis=dict(tickangle=-45)
-                            )
-                            
-                            st.plotly_chart(fig_heatmap_pred, use_container_width=True)
-                            
-                            # Tabla detallada
-                            with st.expander("📋 Ver Predicción Detallada por Hora", expanded=False):
-                                tabla_pred = forecast[['hora_display', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
-                                tabla_pred.columns = ['Hora', 'Predicción', 'Mínimo Esperado', 'Máximo Esperado']
-                                tabla_pred['Predicción'] = tabla_pred['Predicción'].round(1)
-                                tabla_pred['Mínimo Esperado'] = tabla_pred['Mínimo Esperado'].round(1)
-                                tabla_pred['Máximo Esperado'] = tabla_pred['Máximo Esperado'].round(1)
-                                
-                                st.dataframe(tabla_pred, use_container_width=True, hide_index=True)
-                            
-                            st.divider()
-                            
-                            # RECOMENDACIONES AUTOMÁTICAS
-                            st.markdown("#### 💡 Recomendaciones Automáticas")
-                            
-                            recomendaciones = []
-                            
-                            # Recomendación 1: Nivel de actividad esperado
-                            if diferencia_pct > 15:
-                                recomendaciones.append({
-                                    "tipo": "🔥 ALTA DEMANDA",
-                                    "mensaje": f"Se espera un día con ventas **{diferencia_pct:.1f}% superiores** al promedio de {dias_español[dia_semana_pred]}s.",
-                                    "accion": "• Asegurar stock suficiente\n• Considerar personal adicional\n• Preparar productos con anticipación"
-                                })
-                            elif diferencia_pct < -15:
-                                recomendaciones.append({
-                                    "tipo": "📉 BAJA DEMANDA",
-                                    "mensaje": f"Se espera un día con ventas **{abs(diferencia_pct):.1f}% inferiores** al promedio de {dias_español[dia_semana_pred]}s.",
-                                    "accion": "• Ajustar cantidad de personal\n• Ideal para tareas administrativas\n• Considerar promociones especiales"
-                                })
-                            else:
-                                recomendaciones.append({
-                                    "tipo": "➡️ DEMANDA NORMAL",
-                                    "mensaje": f"Se espera un día con ventas similares al promedio de {dias_español[dia_semana_pred]}s (variación del {diferencia_pct:+.1f}%).",
-                                    "accion": "• Mantener operación estándar\n• Stock regular"
-                                })
-                            
-                            # Recomendación 2: Gestión de hora pico
-                            horas_altas = forecast[forecast['yhat'] > forecast['yhat'].quantile(0.75)]['hora_display'].values
-                            if len(horas_altas) > 0:
-                                horas_str = ", ".join(horas_altas)
-                                hora_inicio = horas_altas[0]
-                                hora_fin = horas_altas[-1]
-                                recomendaciones.append({
-                                    "tipo": "⏰ HORARIOS CRÍTICOS",
-                                    "mensaje": f"Horas con mayor demanda esperada: **{horas_str}**",
-                                    "accion": f"• Máximo personal entre {hora_inicio} y {hora_fin}\n• Productos más demandados en lugares accesibles\n• Priorizar atención rápida"
-                                })
-                            
-                            # Recomendación 3: Horarios tranquilos
-                            horas_bajas = forecast[forecast['yhat'] < forecast['yhat'].quantile(0.25)]['hora_display'].values
-                            if len(horas_bajas) > 0:
-                                horas_str_bajas = ", ".join(horas_bajas)
-                                recomendaciones.append({
-                                    "tipo": "🕐 HORARIOS TRANQUILOS",
-                                    "mensaje": f"Horas con menor demanda esperada: **{horas_str_bajas}**",
-                                    "accion": "• Reducir personal en estos horarios\n• Ideal para limpieza y reposición\n• Descansos del equipo"
-                                })
-                            
-                            # Recomendación 4: Stock recomendado
-                            stock_recomendado = total_predicho * 1.2  # 20% de margen
-                            recomendaciones.append({
-                                "tipo": "📦 GESTIÓN DE STOCK",
-                                "mensaje": f"Stock recomendado: **{stock_recomendado:.0f} unidades** (con 20% de margen de seguridad)",
-                                "accion": "• Verificar inventario el día anterior\n• Priorizar productos de alta rotación\n• Preparar backup para la hora pico"
-                            })
-                            
-                            # Mostrar recomendaciones
-                            for rec in recomendaciones:
-                                with st.container():
-                                    st.markdown(f"**{rec['tipo']}**")
-                                    st.info(rec['mensaje'])
-                                    st.markdown(rec['accion'])
-                                    st.markdown("---")
-                            
-                            # Insight final
-                            st.success(f"💼 **Resumen Ejecutivo:** Este {dia_semana_esp} se esperan {total_predicho:.0f} unidades vendidas, con pico a las {hora_pico_pred}. {'Prepárate para alta demanda.' if diferencia_pct > 15 else 'Día dentro de lo normal.' if abs(diferencia_pct) <= 15 else 'Aprovecha para optimizar operaciones.'}")
+                        ])
+                        
+                        fig_hora.update_layout(
+                            xaxis_title="Hora del Día",
+                            yaxis_title="Promedio de Productos por Venta",
+                            height=350,
+                            showlegend=False,
+                            xaxis=dict(dtick=2)
+                        )
+                        
+                        st.plotly_chart(fig_hora, use_container_width=True)
+                        
+                        hora_max_canasta = promedio_por_hora.loc[promedio_por_hora['productos_en_canasta'].idxmax()]
+                        st.info(f"💡 A las **{int(hora_max_canasta['hora'])}:00** los clientes compran más productos por transacción (promedio: {hora_max_canasta['productos_en_canasta']:.2f} productos)")
+                
+                else:
+                    st.info("No se encontraron suficientes pares de productos para analizar")
+        
+    else:
+        st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
+
+except Exception as e:
+    st.error(f"❌ Error al cargar los datos: {e}")
+    st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")ct) <= 15 else 'Aprovecha para optimizar operaciones.'}")
                             
                         except Exception as e:
                             st.error(f"❌ Error al generar predicción: {str(e)}")
@@ -1012,4 +953,3 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
-
