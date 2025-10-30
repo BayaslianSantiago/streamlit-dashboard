@@ -941,15 +941,4 @@ try:
 
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
-    st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")ct) <= 15 else 'Aprovecha para optimizar operaciones.'}")
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error al generar predicción: {str(e)}")
-                            st.info("💡 Intenta con un período más amplio de datos históricos o verifica la calidad de los datos")
-        
-    else:
-        st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
-
-except Exception as e:
-    st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
