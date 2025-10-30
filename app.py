@@ -91,10 +91,6 @@ st.title("📊 Dashboard de Ventas - Fiambrería")
 try:
     df_limpio = cargar_datos()
     
-    if df_limpio is None:
-        st.error("No se pudieron cargar los datos")
-        st.stop()
-    
     # Mostrar info básica
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -326,10 +322,63 @@ try:
         
         # ========== TAB 3: ANÁLISIS DE PRODUCTOS ==========
         with tab3:
-            # Calcular datos BCG usando función cacheada
-            bcg_data, periodo_comparacion, participacion_media, crecimiento_medio = calcular_bcg(
-                df_analisis, periodo_seleccionado, mes_num_sel, año_sel, df_temp, meses_español
+            # Calcular datos BCG
+            ventas_por_producto = df_analisis.groupby('producto')['cantidad'].sum().reset_index()
+            ventas_por_producto['participacion'] = (ventas_por_producto['cantidad'] / ventas_por_producto['cantidad'].sum()) * 100
+            
+            # Calcular tasa de crecimiento
+            if periodo_seleccionado == '📊 Todos los datos':
+                fecha_mitad = df_analisis['fecha_hora'].min() + (df_analisis['fecha_hora'].max() - df_analisis['fecha_hora'].min()) / 2
+                df_periodo1 = df_analisis[df_analisis['fecha_hora'] < fecha_mitad]
+                df_periodo2 = df_analisis[df_analisis['fecha_hora'] >= fecha_mitad]
+                periodo_comparacion = "Primera mitad vs Segunda mitad"
+            else:
+                mes_actual = mes_num_sel
+                año_actual = año_sel
+                
+                if mes_actual == 1:
+                    mes_anterior = 12
+                    año_anterior = año_actual - 1
+                else:
+                    mes_anterior = mes_actual - 1
+                    año_anterior = año_actual
+                
+                df_periodo1 = df_temp[(df_temp['mes_num'] == mes_anterior) & (df_temp['año'] == año_anterior)]
+                df_periodo2 = df_analisis.copy()
+                mes_ant_nombre = meses_español[mes_anterior]
+                periodo_comparacion = f"{mes_ant_nombre} {año_anterior} vs {titulo_periodo}"
+            
+            ventas_p1 = df_periodo1.groupby('producto')['cantidad'].sum()
+            ventas_p2 = df_periodo2.groupby('producto')['cantidad'].sum()
+            
+            crecimiento = pd.DataFrame({
+                'producto': ventas_p2.index,
+                'ventas_periodo1': ventas_p2.index.map(lambda x: ventas_p1.get(x, 0)),
+                'ventas_periodo2': ventas_p2.values
+            })
+            
+            crecimiento['tasa_crecimiento'] = crecimiento.apply(
+                lambda row: ((row['ventas_periodo2'] - row['ventas_periodo1']) / row['ventas_periodo1'] * 100) 
+                if row['ventas_periodo1'] > 0 else 100,
+                axis=1
             )
+            
+            bcg_data = ventas_por_producto.merge(crecimiento[['producto', 'tasa_crecimiento']], on='producto')
+            
+            participacion_media = bcg_data['participacion'].median()
+            crecimiento_medio = bcg_data['tasa_crecimiento'].median()
+            
+            def clasificar_bcg(row):
+                if row['participacion'] >= participacion_media and row['tasa_crecimiento'] >= crecimiento_medio:
+                    return '⭐ Estrella'
+                elif row['participacion'] >= participacion_media and row['tasa_crecimiento'] < crecimiento_medio:
+                    return '🐄 Vaca Lechera'
+                elif row['participacion'] < participacion_media and row['tasa_crecimiento'] >= crecimiento_medio:
+                    return '❓ Interrogante'
+                else:
+                    return '🐕 Perro'
+            
+            bcg_data['categoria'] = bcg_data.apply(clasificar_bcg, axis=1)
             
             # Subtabs dentro de Análisis de Productos
             subtab1, subtab2, subtab3 = st.tabs(["📊 Matriz BCG", "🏆 Ranking", "📋 Resumen por Categoría"])
