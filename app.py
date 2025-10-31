@@ -1204,7 +1204,7 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     import traceback
-    st.code(traceback.format_exc()) contador_pares.most_common(20)
+    st.code(traceback.format_exc())
                 
                 if len(top_pares) > 0:
                     # Selector de cantidad a mostrar
