@@ -1028,7 +1028,7 @@ try:
                         
                         else:
                             st.warning(f"No se encontraron combinaciones para el producto '{producto_buscar}' en el período seleccionado.")
-        
+
 # ========== TAB 6: ANÁLISIS DE PICADAS ==========
         with tab6:
             st.markdown("### 🍽️ Análisis Inteligente de Picadas")
