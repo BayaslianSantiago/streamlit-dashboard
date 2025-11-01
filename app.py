@@ -1100,12 +1100,13 @@ try:
                         st.markdown(f"### 📊 Predicción para {len(dias_rango)} días ({fecha_inicio_pred.strftime('%d/%m/%Y')} - {fecha_fin_pred.strftime('%d/%m/%Y')})")
                         
                         # Calcular promedio por día de la semana y por tipo de picada
-                        df_picadas['tipo_picada'] = df_picadas['producto'].str.extract(r'TABLA (.+?) (CHICA|MEDIANA|GRANDE)')[0]
-                        df_picadas['tamaño'] = df_picadas['producto'].str.extract(r'(CHICA|MEDIANA|GRANDE)')[0]
+                        df_picadas_pred = df_picadas.copy()
+                        df_picadas_pred['tipo_picada'] = df_picadas_pred['producto'].str.extract(r'TABLA (.+?) (CHICA|MEDIANA|GRANDE)')[0]
+                        df_picadas_pred['tamaño'] = df_picadas_pred['producto'].str.extract(r'(CHICA|MEDIANA|GRANDE)')[0]
                         
                         # Promedio por día de semana y producto
-                        ventas_por_dia_producto = df_picadas.groupby(['dia_semana', 'producto'])['cantidad'].sum().reset_index()
-                        dias_por_semana = df_picadas.groupby('dia_semana')['fecha'].nunique()
+                        ventas_por_dia_producto = df_picadas_pred.groupby(['dia_semana', 'producto'])['cantidad'].sum().reset_index()
+                        dias_por_semana = df_picadas_pred.groupby('dia_semana')['fecha'].nunique()
                         
                         promedios = {}
                         for dia in contador_dias.keys():
@@ -1813,4 +1814,3 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
-
