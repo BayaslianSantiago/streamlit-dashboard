@@ -1,4 +1,783 @@
-import streamlit as st
+# ========== TAB 6: ANÁLISIS DE PICADAS ==========
+        with tab6:
+            st.markdown("### 🍽️ Análisis Inteligente de Picadas")
+            st.caption("Predicciones, tendencias y recomendaciones para optimizar la producción de picadas")
+            
+            # Lista de productos de picadas
+            PRODUCTOS_PICADAS = [
+                'TABLA SAN FRANCISCO CHICA', 'TABLA SAN FRANCISCO MEDIANA', 'TABLA SAN FRANCISCO GRANDE',
+                'TABLA CRIOLLA CHICA', 'TABLA CRIOLLA MEDIANA', 'TABLA CRIOLLA GRANDE',
+                'TABLA ITALIANA CHICA', 'TABLA ITALIANA MEDIANA', 'TABLA ITALIANA GRANDE',
+                'TABLA PAMPEANA CHICA', 'TABLA PAMPEANA MEDIANA', 'TABLA PAMPEANA GRANDE',
+                'TABLA IBERICA CHICA', 'TABLA IBERICA MEDIANA', 'TABLA IBERICA GRANDE',
+                'TABLA DE QUESOS CHICA', 'TABLA DE QUESOS MEDIANA', 'TABLA DE QUESOS GRANDE',
+                'TABLA CHACARERA CHICA', 'TABLA CHACARERA MEDIANA', 'TABLA CHACARERA GRANDE',
+                'TABLA TRADICIONAL CHICA', 'TABLA TRADICIONAL MEDIANA', 'TABLA TRADICIONAL GRANDE'
+            ]
+            
+            # Filtrar datos de picadas
+            df_picadas = df_temp[df_temp['producto'].isin(PRODUCTOS_PICADAS)].copy()
+            
+            if df_picadas.empty:
+                st.warning("⚠️ No se encontraron datos de picadas en el período seleccionado")
+            else:
+                # Crear tabs secundarios
+                subtab1, subtab2, subtab3, subtab4 = st.tabs([
+                    "📅 Predicción por Fechas",
+                    "📊 Análisis General",
+                    "🕐 Horarios Óptimos",
+                    "💡 Recomendaciones"
+                ])
+                
+                # ========== SUBTAB 1: PREDICCIÓN POR FECHAS ==========
+                with subtab1:
+                    st.markdown("#### 📅 Predicción de Ventas por Rango de Fechas")
+                    st.caption("Selecciona un período futuro para predecir cuántas picadas necesitarás")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        fecha_inicio_pred = st.date_input(
+                            "Fecha Inicio:",
+                            value=df_picadas['fecha'].max() + pd.Timedelta(days=1),
+                            min_value=df_picadas['fecha'].min(),
+                            key="fecha_inicio_pred"
+                        )
+                    
+                    with col2:
+                        fecha_fin_pred = st.date_input(
+                            "Fecha Fin:",
+                            value=df_picadas['fecha'].max() + pd.Timedelta(days=7),
+                            min_value=fecha_inicio_pred,
+                            key="fecha_fin_pred"
+                        )
+                    
+                    if st.button("🔮 Generar Predicción", type="primary"):
+                        # Convertir a datetime
+                        fecha_inicio_pred = pd.to_datetime(fecha_inicio_pred)
+                        fecha_fin_pred = pd.to_datetime(fecha_fin_pred)
+                        
+                        # Calcular días de la semana en el rango
+                        dias_rango = pd.date_range(fecha_inicio_pred, fecha_fin_pred)
+                        dias_semana_rango = [dia.day_name() for dia in dias_rango]
+                        contador_dias = Counter(dias_semana_rango)
+                        
+                        st.markdown(f"### 📊 Predicción para {len(dias_rango)} días ({fecha_inicio_pred.strftime('%d/%m/%Y')} - {fecha_fin_pred.strftime('%d/%m/%Y')})")
+                        
+                        # Calcular promedio por día de la semana y por tipo de picada
+                        df_picadas['tipo_picada'] = df_picadas['producto'].str.extract(r'TABLA (.+?) (CHICA|MEDIANA|GRANDE)')[0]
+                        df_picadas['tamaño'] = df_picadas['producto'].str.extract(r'(CHICA|MEDIANA|GRANDE)')[0]
+                        
+                        # Promedio por día de semana y producto
+                        ventas_por_dia_producto = df_picadas.groupby(['dia_semana', 'producto'])['cantidad'].sum().reset_index()
+                        dias_por_semana = df_picadas.groupby('dia_semana')['fecha'].nunique()
+                        
+                        promedios = {}
+                        for dia in contador_dias.keys():
+                            if dia in dias_por_semana.index:
+                                productos_dia = ventas_por_dia_producto[ventas_por_dia_producto['dia_semana'] == dia]
+                                for _, row in productos_dia.iterrows():
+                                    producto = row['producto']
+                                    promedio = row['cantidad'] / dias_por_semana[dia]
+                                    if producto not in promedios:
+                                        promedios[producto] = {}
+                                    promedios[producto][dia] = promedio
+                        
+                        # Calcular predicción
+                        predicciones = {}
+                        for producto in PRODUCTOS_PICADAS:
+                            total_pred = 0
+                            for dia, count in contador_dias.items():
+                                if producto in promedios and dia in promedios[producto]:
+                                    total_pred += promedios[producto][dia] * count
+                            if total_pred > 0:
+                                predicciones[producto] = total_pred
+                        
+                        if predicciones:
+                            # Crear DataFrame de predicciones
+                            df_pred = pd.DataFrame(list(predicciones.items()), columns=['Producto', 'Cantidad Estimada'])
+                            df_pred['Cantidad Estimada'] = df_pred['Cantidad Estimada'].round(0).astype(int)
+                            df_pred = df_pred.sort_values('Cantidad Estimada', ascending=False)
+                            
+                            # Extraer tipo y tamaño
+                            df_pred['Tipo'] = df_pred['Producto'].str.extract(r'TABLA (.+?) (CHICA|MEDIANA|GRANDE)')[0]
+                            df_pred['Tamaño'] = df_pred['Producto'].str.extract(r'(CHICA|MEDIANA|GRANDE)')[0]
+                            
+                            # Métricas generales
+                            col1, col2, col3 = st.columns(3)
+                            
+                            total_picadas = df_pred['Cantidad Estimada'].sum()
+                            promedio_diario = total_picadas / len(dias_rango)
+                            producto_top = df_pred.iloc[0]['Producto']
+                            
+                            with col1:
+                                st.metric("🍽️ Total Picadas Estimadas", f"{int(total_picadas):,}")
+                            with col2:
+                                st.metric("📊 Promedio Diario", f"{promedio_diario:.1f}")
+                            with col3:
+                                st.metric("⭐ Más Demandada", producto_top.split('TABLA ')[1][:20])
+                            
+                            st.divider()
+                            
+                            # Gráfico por tipo de picada
+                            st.markdown("#### 📊 Distribución por Tipo de Picada")
+                            
+                            ventas_por_tipo = df_pred.groupby('Tipo')['Cantidad Estimada'].sum().reset_index()
+                            ventas_por_tipo = ventas_por_tipo.sort_values('Cantidad Estimada', ascending=False)
+                            
+                            fig_tipo = go.Figure(data=[
+                                go.Bar(
+                                    x=ventas_por_tipo['Tipo'],
+                                    y=ventas_por_tipo['Cantidad Estimada'],
+                                    marker_color='#FFD700',
+                                    text=ventas_por_tipo['Cantidad Estimada'],
+                                    textposition='auto'
+                                )
+                            ])
+                            
+                            fig_tipo.update_layout(
+                                xaxis_title="Tipo de Picada",
+                                yaxis_title="Unidades Estimadas",
+                                height=400,
+                                showlegend=False
+                            )
+                            
+                            st.plotly_chart(fig_tipo, use_container_width=True)
+                            
+                            # Gráfico por tamaño
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.markdown("#### 📏 Distribución por Tamaño")
+                                ventas_por_tamaño = df_pred.groupby('Tamaño')['Cantidad Estimada'].sum().reset_index()
+                                orden_tamaño = {'CHICA': 1, 'MEDIANA': 2, 'GRANDE': 3}
+                                ventas_por_tamaño['orden'] = ventas_por_tamaño['Tamaño'].map(orden_tamaño)
+                                ventas_por_tamaño = ventas_por_tamaño.sort_values('orden')
+                                
+                                fig_tamaño = go.Figure(data=[
+                                    go.Pie(
+                                        labels=ventas_por_tamaño['Tamaño'],
+                                        values=ventas_por_tamaño['Cantidad Estimada'],
+                                        hole=0.4,
+                                        marker=dict(colors=['#32CD32', '#FFD700', '#FF6347'])
+                                    )
+                                ])
+                                fig_tamaño.update_layout(height=350)
+                                st.plotly_chart(fig_tamaño, use_container_width=True)
+                            
+                            with col2:
+                                st.markdown("#### 📋 Resumen por Tamaño")
+                                tabla_tamaño = ventas_por_tamaño[['Tamaño', 'Cantidad Estimada']].copy()
+                                tabla_tamaño['Porcentaje'] = (tabla_tamaño['Cantidad Estimada'] / tabla_tamaño['Cantidad Estimada'].sum() * 100).round(1).astype(str) + '%'
+                                st.dataframe(tabla_tamaño[['Tamaño', 'Cantidad Estimada', 'Porcentaje']], use_container_width=True, hide_index=True)
+                                
+                                st.markdown("---")
+                                st.markdown("**💡 Tip de Producción:**")
+                                tamaño_preferido = tabla_tamaño.iloc[0]['Tamaño']
+                                st.info(f"El tamaño **{tamaño_preferido}** representa el {tabla_tamaño.iloc[0]['Porcentaje']} de las ventas. Prioriza su producción.")
+                            
+                            st.divider()
+                            
+                            # Tabla detallada completa
+                            st.markdown("#### 📋 Lista Completa de Producción")
+                            
+                            # Agrupar por tipo para mejor visualización
+                            for tipo in ventas_por_tipo['Tipo'].values:
+                                with st.expander(f"🍽️ TABLA {tipo}", expanded=(tipo == ventas_por_tipo.iloc[0]['Tipo'])):
+                                    df_tipo = df_pred[df_pred['Tipo'] == tipo][['Tamaño', 'Cantidad Estimada']].copy()
+                                    df_tipo = df_tipo.sort_values('Tamaño', key=lambda x: x.map(orden_tamaño))
+                                    
+                                    total_tipo = df_tipo['Cantidad Estimada'].sum()
+                                    st.metric(f"Total {tipo}", f"{int(total_tipo)} unidades")
+                                    
+                                    st.dataframe(df_tipo, use_container_width=True, hide_index=True)
+                            
+                            # Distribución por día de la semana
+                            st.divider()
+                            st.markdown("#### 📅 Distribución Estimada por Día de la Semana")
+                            
+                            dias_texto = [dias_español[d] for d in dias_semana_rango]
+                            contador_dias_español = Counter(dias_texto)
+                            
+                            # Calcular ventas promedio por día de la semana
+                            ventas_dia_semana = df_picadas.groupby('dia_semana')['cantidad'].sum() / df_picadas.groupby('dia_semana')['fecha'].nunique()
+                            ventas_dia_semana = ventas_dia_semana.reset_index()
+                            ventas_dia_semana['dia_español'] = ventas_dia_semana['dia_semana'].map(dias_español)
+                            
+                            # Crear predicción por día
+                            pred_por_dia = []
+                            for dia_eng, dia_esp in dias_español.items():
+                                if dia_esp in contador_dias_español:
+                                    cantidad_dias = contador_dias_español[dia_esp]
+                                    if dia_eng in ventas_dia_semana['dia_semana'].values:
+                                        promedio = ventas_dia_semana[ventas_dia_semana['dia_semana'] == dia_eng]['cantidad'].values[0]
+                                        pred_por_dia.append({
+                                            'Día': dia_esp,
+                                            'Días en Período': cantidad_dias,
+                                            'Promedio por Día': promedio,
+                                            'Total Estimado': promedio * cantidad_dias
+                                        })
+                            
+                            df_pred_dias = pd.DataFrame(pred_por_dia)
+                            df_pred_dias = df_pred_dias.set_index('Día').reindex([dias_español[d] for d in dias_orden if dias_español[d] in df_pred_dias.index]).reset_index()
+                            df_pred_dias['Promedio por Día'] = df_pred_dias['Promedio por Día'].round(1)
+                            df_pred_dias['Total Estimado'] = df_pred_dias['Total Estimado'].round(0).astype(int)
+                            
+                            col1, col2 = st.columns([2, 1])
+                            
+                            with col1:
+                                fig_dias_pred = go.Figure(data=[
+                                    go.Bar(
+                                        x=df_pred_dias['Día'],
+                                        y=df_pred_dias['Total Estimado'],
+                                        marker_color='#1E90FF',
+                                        text=df_pred_dias['Total Estimado'],
+                                        textposition='auto'
+                                    )
+                                ])
+                                
+                                fig_dias_pred.update_layout(
+                                    xaxis_title="Día de la Semana",
+                                    yaxis_title="Picadas Estimadas",
+                                    height=350,
+                                    showlegend=False
+                                )
+                                
+                                st.plotly_chart(fig_dias_pred, use_container_width=True)
+                            
+                            with col2:
+                                st.markdown("**📊 Tabla Detallada**")
+                                st.dataframe(df_pred_dias, use_container_width=True, hide_index=True)
+                        
+                        else:
+                            st.warning("No hay suficientes datos históricos para generar predicciones confiables")
+                
+                # ========== SUBTAB 2: ANÁLISIS GENERAL ==========
+                with subtab2:
+                    st.markdown("#### 📊 Análisis General de Picadas")
+                    
+                    # Extraer tipo y tamaño
+                    df_picadas_analysis = df_picadas.copy()
+                    df_picadas_analysis['tipo_picada'] = df_picadas_analysis['producto'].str.extract(r'TABLA (.+?) (CHICA|MEDIANA|GRANDE)')[0]
+                    df_picadas_analysis['tamaño'] = df_picadas_analysis['producto'].str.extract(r'(CHICA|MEDIANA|GRANDE)')[0]
+                    
+                    # Métricas generales
+                    total_vendido = df_picadas_analysis['cantidad'].sum()
+                    tipos_unicos = df_picadas_analysis['tipo_picada'].nunique()
+                    promedio_diario = total_vendido / df_picadas_analysis['fecha'].nunique()
+                    picada_mas_vendida = df_picadas_analysis.groupby('producto')['cantidad'].sum().idxmax()
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("🍽️ Total Picadas Vendidas", f"{int(total_vendido):,}")
+                    with col2:
+                        st.metric("📊 Promedio Diario", f"{promedio_diario:.1f}")
+                    with col3:
+                        st.metric("🎯 Tipos Diferentes", f"{tipos_unicos}")
+                    with col4:
+                        st.metric("⭐ Más Vendida", picada_mas_vendida.split('TABLA ')[1][:15] + "...")
+                    
+                    st.divider()
+                    
+                    # Ranking de picadas
+                    st.markdown("#### 🏆 Ranking de Picadas")
+                    
+                    ranking_picadas = df_picadas_analysis.groupby('producto')['cantidad'].sum().reset_index()
+                    ranking_picadas = ranking_picadas.sort_values('cantidad', ascending=False).reset_index(drop=True)
+                    ranking_picadas['participacion'] = (ranking_picadas['cantidad'] / ranking_picadas['cantidad'].sum() * 100).round(2)
+                    ranking_picadas.insert(0, '#', range(1, len(ranking_picadas) + 1))
+                    ranking_picadas.columns = ['#', 'Picada', 'Unidades Vendidas', 'Participación (%)']
+                    
+                    # Mostrar top 10
+                    st.dataframe(ranking_picadas.head(10), use_container_width=True, hide_index=True)
+                    
+                    with st.expander("📋 Ver Ranking Completo", expanded=False):
+                        st.dataframe(ranking_picadas, use_container_width=True, hide_index=True)
+                    
+                    st.divider()
+                    
+                    # Análisis por tipo
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("#### 📊 Ventas por Tipo de Picada")
+                        ventas_tipo = df_picadas_analysis.groupby('tipo_picada')['cantidad'].sum().reset_index()
+                        ventas_tipo = ventas_tipo.sort_values('cantidad', ascending=False)
+                        
+                        fig_tipo_general = go.Figure(data=[
+                            go.Bar(
+                                x=ventas_tipo['tipo_picada'],
+                                y=ventas_tipo['cantidad'],
+                                marker_color='#FFD700',
+                                text=ventas_tipo['cantidad'],
+                                textposition='auto'
+                            )
+                        ])
+                        
+                        fig_tipo_general.update_layout(
+                            xaxis_title="Tipo",
+                            yaxis_title="Unidades",
+                            height=400,
+                            showlegend=False,
+                            xaxis=dict(tickangle=-45)
+                        )
+                        
+                        st.plotly_chart(fig_tipo_general, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("#### 📏 Ventas por Tamaño")
+                        ventas_tamaño = df_picadas_analysis.groupby('tamaño')['cantidad'].sum().reset_index()
+                        orden_tamaño = {'CHICA': 1, 'MEDIANA': 2, 'GRANDE': 3}
+                        ventas_tamaño['orden'] = ventas_tamaño['tamaño'].map(orden_tamaño)
+                        ventas_tamaño = ventas_tamaño.sort_values('orden')
+                        
+                        fig_tamaño_general = go.Figure(data=[
+                            go.Pie(
+                                labels=ventas_tamaño['tamaño'],
+                                values=ventas_tamaño['cantidad'],
+                                hole=0.4,
+                                marker=dict(colors=['#32CD32', '#FFD700', '#FF6347']),
+                                textinfo='label+percent',
+                                textposition='auto'
+                            )
+                        ])
+                        
+                        fig_tamaño_general.update_layout(height=400)
+                        st.plotly_chart(fig_tamaño_general, use_container_width=True)
+                    
+                    st.divider()
+                    
+                    # Tendencia temporal
+                    st.markdown("#### 📈 Tendencia de Ventas en el Tiempo")
+                    
+                    ventas_tiempo = df_picadas_analysis.groupby('fecha')['cantidad'].sum().reset_index()
+                    
+                    fig_tendencia = go.Figure(data=[
+                        go.Scatter(
+                            x=ventas_tiempo['fecha'],
+                            y=ventas_tiempo['cantidad'],
+                            mode='lines+markers',
+                            line=dict(color='#1E90FF', width=2),
+                            marker=dict(size=6),
+                            fill='tozeroy',
+                            fillcolor='rgba(30,144,255,0.2)'
+                        )
+                    ])
+                    
+                    # Agregar línea de promedio
+                    promedio_general = ventas_tiempo['cantidad'].mean()
+                    fig_tendencia.add_hline(y=promedio_general, line_dash="dash", line_color="red", 
+                                           annotation_text=f"Promedio: {promedio_general:.1f}",
+                                           annotation_position="right")
+                    
+                    fig_tendencia.update_layout(
+                        xaxis_title="Fecha",
+                        yaxis_title="Picadas Vendidas",
+                        height=400,
+                        showlegend=False
+                    )
+                    
+                    st.plotly_chart(fig_tendencia, use_container_width=True)
+                    
+                    # Ventas por día de la semana
+                    st.markdown("#### 📅 Ventas por Día de la Semana")
+                    
+                    ventas_dia_picadas = df_picadas_analysis.groupby('dia_semana')['cantidad'].sum().reset_index()
+                    ventas_dia_picadas = ventas_dia_picadas.set_index('dia_semana').reindex(dias_orden).reset_index()
+                    ventas_dia_picadas['dia_español'] = ventas_dia_picadas['dia_semana'].map(dias_español)
+                    
+                    fig_dias_picadas = go.Figure(data=[
+                        go.Bar(
+                            x=ventas_dia_picadas['dia_español'],
+                            y=ventas_dia_picadas['cantidad'],
+                            marker_color='#32CD32',
+                            text=ventas_dia_picadas['cantidad'],
+                            textposition='auto'
+                        )
+                    ])
+                    
+                    fig_dias_picadas.update_layout(
+                        xaxis_title="Día de la Semana",
+                        yaxis_title="Picadas Vendidas",
+                        height=400,
+                        showlegend=False
+                    )
+                    
+                    st.plotly_chart(fig_dias_picadas, use_container_width=True)
+                
+                # ========== SUBTAB 3: HORARIOS ÓPTIMOS ==========
+                with subtab3:
+                    st.markdown("#### 🕐 Análisis de Horarios Óptimos")
+                    st.caption("Identifica los mejores momentos para tener picadas armadas y listas")
+                    
+                    # Ventas por hora
+                    ventas_hora_picadas = df_picadas.groupby('hora_num')['cantidad'].sum().reset_index()
+                    
+                    # Identificar horas pico
+                    promedio_hora = ventas_hora_picadas['cantidad'].mean()
+                    horas_pico = ventas_hora_picadas[ventas_hora_picadas['cantidad'] >= promedio_hora * 1.2]
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    hora_max = ventas_hora_picadas.loc[ventas_hora_picadas['cantidad'].idxmax(), 'hora_num']
+                    cantidad_max = ventas_hora_picadas['cantidad'].max()
+                    
+                    with col1:
+                        st.metric("🔥 Hora Pico", f"{int(hora_max)}:00 hs")
+                    with col2:
+                        st.metric("📊 Ventas en Pico", f"{int(cantidad_max)} picadas")
+                    with col3:
+                        st.metric("⏰ Horarios Destacados", f"{len(horas_pico)} horas")
+                    
+                    st.divider()
+                    
+                    # Gráfico de ventas por hora
+                    st.markdown("#### 📊 Distribución de Ventas por Hora")
+                    
+                    fig_hora_picadas = go.Figure()
+                    
+                    fig_hora_picadas.add_trace(go.Scatter(
+                        x=ventas_hora_picadas['hora_num'],
+                        y=ventas_hora_picadas['cantidad'],
+                        mode='lines+markers',
+                        line=dict(color='#FFD700', width=3),
+                        marker=dict(size=10),
+                        fill='tozeroy',
+                        fillcolor='rgba(255,215,0,0.3)',
+                        name='Ventas'
+                    ))
+                    
+                    # Línea de promedio
+                    fig_hora_picadas.add_hline(y=promedio_hora, line_dash="dash", line_color="red",
+                                              annotation_text=f"Promedio: {promedio_hora:.1f}",
+                                              annotation_position="right")
+                    
+                    # Marcar horas pico
+                    fig_hora_picadas.add_trace(go.Scatter(
+                        x=horas_pico['hora_num'],
+                        y=horas_pico['cantidad'],
+                        mode='markers',
+                        marker=dict(size=15, color='red', symbol='star'),
+                        name='Horas Pico'
+                    ))
+                    
+                    fig_hora_picadas.update_layout(
+                        xaxis_title="Hora del Día",
+                        yaxis_title="Picadas Vendidas",
+                        height=450,
+                        xaxis=dict(dtick=1),
+                        showlegend=True
+                    )
+                    
+                    st.plotly_chart(fig_hora_picadas, use_container_width=True)
+                    
+                    st.divider()
+                    
+                    # Heatmap día x hora
+                    st.markdown("#### 🔥 Heatmap: Día vs Hora")
+                    
+                    ventas_dia_hora = df_picadas.groupby(['dia_semana', 'hora_num'])['cantidad'].sum().reset_index()
+                    matriz_dia_hora = ventas_dia_hora.pivot(index='dia_semana', columns='hora_num', values='cantidad').fillna(0)
+                    matriz_dia_hora = matriz_dia_hora.reindex(dias_orden)
+                    matriz_dia_hora.index = [dias_español[d] for d in matriz_dia_hora.index]
+                    
+                    fig_heatmap_picadas = go.Figure(data=go.Heatmap(
+                        z=matriz_dia_hora.values,
+                        x=[f"{int(h)}:00" for h in matriz_dia_hora.columns],
+                        y=matriz_dia_hora.index,
+                        colorscale='YlOrRd',
+                        text=matriz_dia_hora.values.astype(int),
+                        texttemplate='%{text}',
+                        textfont={"size": 10},
+                        colorbar=dict(title="Picadas<br>vendidas")
+                    ))
+                    
+                    fig_heatmap_picadas.update_layout(
+                        xaxis_title="Hora del Día",
+                        yaxis_title="Día de la Semana",
+                        height=500
+                    )
+                    
+                    st.plotly_chart(fig_heatmap_picadas, use_container_width=True)
+                    
+                    st.divider()
+                    
+                    # Recomendaciones de pre-armado
+                    st.markdown("#### 💡 Recomendaciones de Pre-Armado")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.success("**🕐 HORARIOS CRÍTICOS**")
+                        st.markdown("Tener picadas armadas en estos horarios:")
+                        for _, row in horas_pico.sort_values('cantidad', ascending=False).iterrows():
+                            hora = int(row['hora_num'])
+                            cant = int(row['cantidad'])
+                            st.markdown(f"• **{hora}:00 - {hora+1}:00** → ~{cant} picadas")
+                    
+                    with col2:
+                        st.info("**📅 DÍAS CRÍTICOS**")
+                        dias_mas_ventas = ventas_dia_picadas.nlargest(3, 'cantidad')
+                        st.markdown("Reforzar producción estos días:")
+                        for _, row in dias_mas_ventas.iterrows():
+                            dia = row['dia_español']
+                            cant = int(row['cantidad'])
+                            st.markdown(f"• **{dia}** → ~{cant} picadas/día")
+                    
+                    # Análisis por tamaño y hora
+                    with st.expander("📏 Ver Análisis de Tamaños por Hora", expanded=False):
+                        st.markdown("##### Preferencia de Tamaño según Horario")
+                        
+                        df_picadas_hora_tamaño = df_picadas.copy()
+                        df_picadas_hora_tamaño['tamaño'] = df_picadas_hora_tamaño['producto'].str.extract(r'(CHICA|MEDIANA|GRANDE)')[0]
+                        
+                        ventas_hora_tamaño = df_picadas_hora_tamaño.groupby(['hora_num', 'tamaño'])['cantidad'].sum().reset_index()
+                        
+                        fig_hora_tamaño = go.Figure()
+                        
+                        colores_tamaño = {'CHICA': '#32CD32', 'MEDIANA': '#FFD700', 'GRANDE': '#FF6347'}
+                        
+                        for tamaño in ['CHICA', 'MEDIANA', 'GRANDE']:
+                            datos_tamaño = ventas_hora_tamaño[ventas_hora_tamaño['tamaño'] == tamaño]
+                            fig_hora_tamaño.add_trace(go.Scatter(
+                                x=datos_tamaño['hora_num'],
+                                y=datos_tamaño['cantidad'],
+                                mode='lines+markers',
+                                name=tamaño,
+                                line=dict(width=3),
+                                marker=dict(size=8, color=colores_tamaño[tamaño])
+                            ))
+                        
+                        fig_hora_tamaño.update_layout(
+                            xaxis_title="Hora del Día",
+                            yaxis_title="Picadas Vendidas",
+                            height=400,
+                            xaxis=dict(dtick=2),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
+                        
+                        st.plotly_chart(fig_hora_tamaño, use_container_width=True)
+                        
+                        # Análisis de conclusiones
+                        for hora in horas_pico['hora_num'].values:
+                            datos_hora = ventas_hora_tamaño[ventas_hora_tamaño['hora_num'] == hora]
+                            if not datos_hora.empty:
+                                tamaño_preferido = datos_hora.loc[datos_hora['cantidad'].idxmax(), 'tamaño']
+                                st.info(f"A las **{int(hora)}:00** se prefieren las picadas **{tamaño_preferido}**")
+                
+                # ========== SUBTAB 4: RECOMENDACIONES ==========
+                with subtab4:
+                    st.markdown("#### 💡 Recomendaciones Inteligentes de Producción")
+                    st.caption("Estrategias basadas en datos para optimizar tu producción")
+                    
+                    # Calcular métricas clave
+                    df_picadas_rec = df_picadas.copy()
+                    df_picadas_rec['tipo_picada'] = df_picadas_rec['producto'].str.extract(r'TABLA (.+?) (CHICA|MEDIANA|GRANDE)')[0]
+                    df_picadas_rec['tamaño'] = df_picadas_rec['producto'].str.extract(r'(CHICA|MEDIANA|GRANDE)')[0]
+                    
+                    # Top 3 productos
+                    top3_productos = df_picadas_rec.groupby('producto')['cantidad'].sum().nlargest(3)
+                    
+                    # Top 3 tipos
+                    top3_tipos = df_picadas_rec.groupby('tipo_picada')['cantidad'].sum().nlargest(3)
+                    
+                    # Tamaño más vendido
+                    tamaño_top = df_picadas_rec.groupby('tamaño')['cantidad'].sum().idxmax()
+                    
+                    # Día más vendido
+                    dia_top = df_picadas_rec.groupby('dia_semana')['cantidad'].sum().idxmax()
+                    dia_top_esp = dias_español[dia_top]
+                    
+                    # Hora más vendida
+                    hora_top = df_picadas_rec.groupby('hora_num')['cantidad'].sum().idxmax()
+                    
+                    # RECOMENDACIÓN 1: Producción Prioritaria
+                    st.markdown("### 🎯 1. Producción Prioritaria")
+                    st.success("**Estos productos deben estar SIEMPRE disponibles:**")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    productos_prioritarios = list(top3_productos.index)
+                    for idx, (col, producto) in enumerate(zip([col1, col2, col3], productos_prioritarios)):
+                        with col:
+                            st.markdown(f"**#{idx+1}**")
+                            st.markdown(f"**{producto.replace('TABLA ', '')}**")
+                            cant = int(top3_productos[producto])
+                            promedio_diario = cant / df_picadas_rec['fecha'].nunique()
+                            st.metric("Ventas Totales", f"{cant}")
+                            st.metric("Promedio Diario", f"{promedio_diario:.1f}")
+                    
+                    st.divider()
+                    
+                    # RECOMENDACIÓN 2: Stock por Día
+                    st.markdown("### 📅 2. Plan de Stock Semanal")
+                    st.info("**Cantidad recomendada de picadas por día de la semana:**")
+                    
+                    ventas_por_dia_rec = df_picadas_rec.groupby('dia_semana')['cantidad'].sum() / df_picadas_rec.groupby('dia_semana')['fecha'].nunique()
+                    ventas_por_dia_rec = ventas_por_dia_rec.reindex(dias_orden)
+                    
+                    tabla_semanal = pd.DataFrame({
+                        'Día': [dias_español[d] for d in ventas_por_dia_rec.index],
+                        'Picadas Recomendadas': ventas_por_dia_rec.values.round(0).astype(int),
+                        'Nivel': ['🔴 ALTO' if v > ventas_por_dia_rec.mean() * 1.2 else 
+                                 '🟡 MEDIO' if v > ventas_por_dia_rec.mean() * 0.8 else 
+                                 '🟢 BAJO' for v in ventas_por_dia_rec.values]
+                    })
+                    
+                    st.dataframe(tabla_semanal, use_container_width=True, hide_index=True)
+                    
+                    st.markdown(f"💡 **Reforzar producción los días {dia_top_esp}** (día con mayor demanda)")
+                    
+                    st.divider()
+                    
+                    # RECOMENDACIÓN 3: Pre-armado por Horario
+                    st.markdown("### 🕐 3. Estrategia de Pre-Armado")
+                    st.warning("**Plan horario para tener picadas listas:**")
+                    
+                    ventas_por_hora_rec = df_picadas_rec.groupby('hora_num')['cantidad'].sum()
+                    horas_ordenadas = ventas_por_hora_rec.sort_values(ascending=False)
+                    
+                    st.markdown("**🔴 HORARIOS CRÍTICOS (Pre-armar con anticipación):**")
+                    for hora in horas_ordenadas.head(5).index:
+                        cantidad = int(horas_ordenadas[hora])
+                        porcentaje = (cantidad / ventas_por_hora_rec.sum() * 100)
+                        st.markdown(f"• **{int(hora)-1}:30 - {int(hora)}:00** → Armar **{cantidad}** picadas ({porcentaje:.1f}% del día)")
+                    
+                    st.markdown("\n**🟡 HORARIOS MODERADOS (Preparar según demanda):**")
+                    for hora in horas_ordenadas[5:10].index:
+                        cantidad = int(horas_ordenadas[hora])
+                        st.markdown(f"• **{int(hora)}:00 - {int(hora)+1}:00** → ~**{cantidad}** picadas")
+                    
+                    st.divider()
+                    
+                    # RECOMENDACIÓN 4: Mix de Productos
+                    st.markdown("### 📊 4. Mix Óptimo de Productos")
+                    st.success("**Distribución recomendada de tu producción:**")
+                    
+                    # Por tipo
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Por Tipo de Picada:**")
+                        dist_tipo = df_picadas_rec.groupby('tipo_picada')['cantidad'].sum()
+                        dist_tipo_pct = (dist_tipo / dist_tipo.sum() * 100).round(1)
+                        
+                        for tipo in dist_tipo_pct.nlargest(5).index:
+                            pct = dist_tipo_pct[tipo]
+                            st.markdown(f"• **{tipo}**: {pct}%")
+                    
+                    with col2:
+                        st.markdown("**Por Tamaño:**")
+                        dist_tamaño = df_picadas_rec.groupby('tamaño')['cantidad'].sum()
+                        dist_tamaño_pct = (dist_tamaño / dist_tamaño.sum() * 100).round(1)
+                        
+                        orden_tamaño = {'CHICA': 1, 'MEDIANA': 2, 'GRANDE': 3}
+                        for tamaño in sorted(dist_tamaño_pct.index, key=lambda x: orden_tamaño[x]):
+                            pct = dist_tamaño_pct[tamaño]
+                            st.markdown(f"• **{tamaño}**: {pct}%")
+                    
+                    st.info(f"💡 **Insight**: El tamaño **{tamaño_top}** representa el {dist_tamaño_pct[tamaño_top]}% de las ventas. Ajusta tu producción en consecuencia.")
+                    
+                    st.divider()
+                    
+                    # RECOMENDACIÓN 5: Detección de Oportunidades
+                    st.markdown("### 🚀 5. Oportunidades de Mejora")
+                    
+                    # Productos con bajo rendimiento
+                    ventas_productos = df_picadas_rec.groupby('producto')['cantidad'].sum().sort_values()
+                    bottom_5 = ventas_productos.head(5)
+                    
+                    if len(bottom_5) > 0:
+                        st.warning("**⚠️ Productos con Bajas Ventas (Considerar):**")
+                        for producto in bottom_5.index:
+                            cant = int(bottom_5[producto])
+                            pct = (cant / ventas_productos.sum() * 100)
+                            st.markdown(f"• **{producto.replace('TABLA ', '')}**: {cant} unidades ({pct:.2f}%)")
+                        
+                        st.markdown("\n**Acciones sugeridas:**")
+                        st.markdown("- Reducir cantidad producida de estos productos")
+                        st.markdown("- Considerar promociones especiales")
+                        st.markdown("- Evaluar si mantener en el catálogo")
+                    
+                    st.divider()
+                    
+                    # RECOMENDACIÓN 6: Checklist de Producción
+                    st.markdown("### ✅ 6. Checklist Diario de Producción")
+                    
+                    st.markdown("**📋 Usa este checklist cada día:**")
+                    
+                    # Generar checklist inteligente
+                    promedio_diario_total = df_picadas_rec['cantidad'].sum() / df_picadas_rec['fecha'].nunique()
+                    
+                    st.markdown(f"""
+                    **ANTES DE ABRIR ({int(hora_top-2)}:00):**
+                    - [ ] Verificar stock de ingredientes
+                    - [ ] Pre-armar {int(promedio_diario_total * 0.3)} picadas mixtas (priorizar tamaño {tamaño_top})
+                    - [ ] Preparar {int(top3_productos.iloc[0] / df_picadas_rec['fecha'].nunique())} unidades de {top3_productos.index[0].replace('TABLA ', '')}
+                    
+                    **HORARIO PICO ({int(hora_top-1)}:00 - {int(hora_top+1)}:00):**
+                    - [ ] Tener armadas al menos {int(horas_ordenadas.iloc[0])} picadas
+                    - [ ] Monitorear stock en tiempo real
+                    - [ ] Personal adicional disponible
+                    
+                    **DÍA COMPLETO:**
+                    - [ ] Meta de producción: {int(promedio_diario_total)} picadas
+                    - [ ] Registrar ventas por tipo y tamaño
+                    - [ ] Ajustar producción según demanda real
+                    """)
+                    
+                    st.divider()
+                    
+                    # RECOMENDACIÓN 7: Alertas y Predicciones
+                    st.markdown("### 🔔 7. Sistema de Alertas")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.error("**🚨 ALERTAS ROJAS:**")
+                        st.markdown(f"• Si {dia_top_esp} → Duplicar stock de {top3_productos.index[0].replace('TABLA ', '')}")
+                        st.markdown(f"• Si hora ≥ {int(hora_top)}:00 → Verificar picadas armadas")
+                        st.markdown(f"• Si ventas > {int(promedio_diario_total * 1.5)}/día → Activar producción extra")
+                    
+                    with col2:
+                        st.warning("**⚠️ ALERTAS AMARILLAS:**")
+                        st.markdown(f"• Si stock < 5 picadas a las {int(hora_top-1)}:00 → Pre-armar más")
+                        st.markdown(f"• Si tamaño {tamaño_top} < 30% → Ajustar producción")
+                        st.markdown("• Si fin de semana → Aumentar stock 20%")
+                    
+                    st.divider()
+                    
+                    # Resumen Final
+                    st.markdown("### 📌 Resumen Ejecutivo")
+                    
+                    st.success(f"""
+                    **🎯 DATOS CLAVE PARA TU NEGOCIO:**
+                    
+                    **Producción Diaria Recomendada:** {int(promedio_diario_total)} picadas
+                    
+                    **Top 3 Productos (Nunca Faltar):**
+                    1. {top3_productos.index[0].replace('TABLA ', '')}
+                    2. {top3_productos.index[1].replace('TABLA ', '')}
+                    3. {top3_productos.index[2].replace('TABLA ', '')}
+                    
+                    **Momento Crítico:** {dia_top_esp} a las {int(hora_top)}:00
+                    
+                    **Mix Ideal:** {dist_tamaño_pct['CHICA']:.0f}% Chicas, {dist_tamaño_pct['MEDIANA']:.0f}% Medianas, {dist_tamaño_pct['GRANDE']:.0f}% Grandes
+                    
+                    **Horario de Pre-Armado:** Comenzar a las {int(hora_top-2)}:00
+                    """)
+                    
+                    # Botón de descarga (simulado)
+                    st.markdown("---")
+                    st.info("💾 **Tip:** Toma captura de pantalla de estas recomendaciones y compártelas con tu equipo de producción")
+        
+    else:
+        st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
+
+except Exception as e:
+    st.error(f"❌ Error al cargar los datos: {e}")
+    st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -790,14 +1569,19 @@ try:
                     
                     if len(top_pares) > 0:
                         # Selector de cantidad a mostrar
-                        num_mostrar = st.slider(
-                            "Cantidad de combinaciones a mostrar:",
-                            min_value=5,
-                            max_value=min(20, len(top_pares)),
-                            value=min(10, len(top_pares)),
-                            step=5,
-                            key="slider_pares"
-                        )
+                        max_disponible = min(20, len(top_pares))
+                        if max_disponible > 5:
+                            num_mostrar = st.slider(
+                                "Cantidad de combinaciones a mostrar:",
+                                min_value=5,
+                                max_value=max_disponible,
+                                value=min(10, max_disponible),
+                                step=5,
+                                key="slider_pares"
+                            )
+                        else:
+                            num_mostrar = max_disponible
+                            st.info(f"Mostrando {num_mostrar} combinaciones disponibles")
                         
                         # Crear dataframe de pares
                         df_pares = pd.DataFrame(top_pares[:num_mostrar], columns=['Par', 'Frecuencia'])
@@ -972,14 +1756,19 @@ try:
                             st.divider()
                             
                             # Gráfico de barras
-                            num_mostrar_busqueda = st.slider(
-                                "Cantidad a mostrar:",
-                                min_value=5,
-                                max_value=min(15, len(df_combinaciones)),
-                                value=min(10, len(df_combinaciones)),
-                                step=5,
-                                key="slider_busqueda"
-                            )
+                            max_combinaciones = min(15, len(df_combinaciones))
+                            if max_combinaciones > 5:
+                                num_mostrar_busqueda = st.slider(
+                                    "Cantidad a mostrar:",
+                                    min_value=5,
+                                    max_value=max_combinaciones,
+                                    value=min(10, max_combinaciones),
+                                    step=5,
+                                    key="slider_busqueda"
+                                )
+                            else:
+                                num_mostrar_busqueda = max_combinaciones
+                                st.info(f"Mostrando {num_mostrar_busqueda} combinaciones disponibles")
                             
                             df_combinaciones_plot = df_combinaciones.head(num_mostrar_busqueda)
                             
@@ -1121,14 +1910,19 @@ try:
                     top_subida = top_subida[top_subida['cantidad_fecha'] > 0]
                     
                     if not top_subida.empty:
-                        num_mostrar_subida = st.slider(
-                            "Cantidad de productos a mostrar:",
-                            min_value=5,
-                            max_value=min(15, len(top_subida)),
-                            value=min(10, len(top_subida)),
-                            step=5,
-                            key="slider_subida"
-                        )
+                        max_productos_subida = min(15, len(top_subida))
+                        if max_productos_subida > 5:
+                            num_mostrar_subida = st.slider(
+                                "Cantidad de productos a mostrar:",
+                                min_value=5,
+                                max_value=max_productos_subida,
+                                value=min(10, max_productos_subida),
+                                step=5,
+                                key="slider_subida"
+                            )
+                        else:
+                            num_mostrar_subida = max_productos_subida
+                            st.info(f"Mostrando {num_mostrar_subida} productos disponibles")
                         
                         top_subida_plot = top_subida.head(num_mostrar_subida)
                         
