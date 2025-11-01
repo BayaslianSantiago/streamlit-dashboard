@@ -1,3 +1,4 @@
+import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -1812,3 +1813,4 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+
