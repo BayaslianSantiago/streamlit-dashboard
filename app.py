@@ -5,6 +5,7 @@ import plotly.express as px
 import numpy as np
 from itertools import combinations
 from collections import Counter
+from datetime import datetime
 
 # URL del CSV en GitHub
 DATA_URL = "https://raw.githubusercontent.com/BayaslianSantiago/streamlit-dashboard/refs/heads/main/datos.csv"
@@ -50,6 +51,8 @@ try:
     df_temp['mes_num'] = df_temp['fecha_hora'].dt.month
     df_temp['año'] = df_temp['fecha_hora'].dt.year
     df_temp['semana_del_mes'] = ((df_temp['fecha_hora'].dt.day - 1) // 7) + 1
+    df_temp['fecha'] = df_temp['fecha_hora'].dt.date
+    df_temp['dia_mes'] = df_temp['fecha_hora'].dt.day
     
     # Diccionario de meses
     meses_español = {
@@ -104,12 +107,13 @@ try:
     # --- TABS PRINCIPALES ---
     if not df_analisis.empty:
         
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "📈 Resumen General", 
             "🔥 Análisis de Horarios", 
             "📊 Análisis de Productos",
             "🔍 Búsqueda Detallada",
-            "🛒 Análisis de Canastas"
+            "🛒 Análisis de Canastas",
+            "🎉 Fechas Especiales"
         ])
         
         # ========== TAB 1: RESUMEN GENERAL ==========
@@ -704,12 +708,18 @@ try:
             st.markdown("### 🛒 Análisis de Canastas de Compra")
             st.caption("Descubre qué productos se compran juntos en la misma transacción")
             
+            # Productos a excluir del análisis
+            PRODUCTOS_EXCLUIR = ["BAGUETTES CHICOS"]
+            
             # Agrupar productos vendidos en la misma fecha y hora (misma transacción)
             df_transacciones = df_analisis.copy()
             df_transacciones['transaccion_id'] = df_transacciones['fecha_hora'].astype(str)
             
+            # Filtrar productos excluidos
+            df_transacciones_filtrado = df_transacciones[~df_transacciones['producto'].isin(PRODUCTOS_EXCLUIR)]
+            
             # Crear canastas: productos agrupados por transacción
-            canastas = df_transacciones.groupby('transaccion_id')['producto'].apply(list).reset_index()
+            canastas = df_transacciones_filtrado.groupby('transaccion_id')['producto'].apply(list).reset_index()
             canastas['num_productos'] = canastas['producto'].apply(len)
             
             # Filtrar solo transacciones con más de 1 producto
@@ -717,6 +727,7 @@ try:
             
             # Métricas generales
             st.markdown("#### 📊 Estadísticas Generales")
+            st.caption(f"⚠️ Productos excluidos del análisis: {', '.join(PRODUCTOS_EXCLUIR)}")
             
             col1, col2, col3, col4 = st.columns(4)
             
@@ -760,182 +771,529 @@ try:
             if len(canastas_multiples) == 0:
                 st.warning("⚠️ No se encontraron transacciones con múltiples productos en el período seleccionado")
             else:
-                # Encontrar pares de productos más frecuentes
-                st.markdown("#### 🔗 Productos que se Compran Juntos")
+                # Subtabs para diferentes análisis
+                subtab1, subtab2 = st.tabs(["🔗 Productos Frecuentes", "🔍 Buscar por Producto"])
                 
-                # Calcular todas las combinaciones de pares
-                pares = []
-                for productos in canastas_multiples['producto']:
-                    if len(productos) >= 2:
-                        # Generar todos los pares posibles
-                        for combo in combinations(sorted(productos), 2):
-                            pares.append(combo)
-                
-                # Contar frecuencia de cada par
-                contador_pares = Counter(pares)
-                top_pares = contador_pares.most_common(20)
-                
-                if len(top_pares) > 0:
-                    # Selector de cantidad a mostrar
-                    num_mostrar = st.slider(
-                        "Cantidad de combinaciones a mostrar:",
-                        min_value=5,
-                        max_value=min(20, len(top_pares)),
-                        value=min(10, len(top_pares)),
-                        step=5
-                    )
+                with subtab1:
+                    st.markdown("#### 🔗 Productos que se Compran Juntos")
                     
-                    # Crear dataframe de pares
-                    df_pares = pd.DataFrame(top_pares[:num_mostrar], columns=['Par', 'Frecuencia'])
-                    df_pares['Producto 1'] = df_pares['Par'].apply(lambda x: x[0])
-                    df_pares['Producto 2'] = df_pares['Par'].apply(lambda x: x[1])
-                    
-                    # Calcular soporte (% de transacciones que contienen este par)
-                    df_pares['Soporte (%)'] = (df_pares['Frecuencia'] / len(canastas_multiples) * 100).round(2)
-                    
-                    # Gráfico de barras
-                    df_pares['Combinación'] = df_pares.apply(
-                        lambda row: f"{row['Producto 1'][:20]} + {row['Producto 2'][:20]}", 
-                        axis=1
-                    )
-                    
-                    fig_pares = go.Figure(data=[
-                        go.Bar(
-                            y=df_pares['Combinación'][::-1],
-                            x=df_pares['Frecuencia'][::-1],
-                            orientation='h',
-                            marker_color='#1E90FF',
-                            text=df_pares['Frecuencia'][::-1],
-                            textposition='auto',
-                            hovertemplate='<b>%{y}</b><br>Frecuencia: %{x}<extra></extra>'
-                        )
-                    ])
-                    
-                    fig_pares.update_layout(
-                        title="Top Combinaciones de Productos",
-                        xaxis_title="Frecuencia (veces que se compraron juntos)",
-                        yaxis_title="",
-                        height=max(400, num_mostrar * 40),
-                        showlegend=False
-                    )
-                    
-                    st.plotly_chart(fig_pares, use_container_width=True)
-                    
-                    # Tabla detallada
-                    st.markdown("#### 📋 Tabla Detallada de Combinaciones")
-                    
-                    tabla_pares = df_pares[['Producto 1', 'Producto 2', 'Frecuencia', 'Soporte (%)']].copy()
-                    st.dataframe(tabla_pares, use_container_width=True, hide_index=True)
-                    
-                    st.divider()
-                    
-                    # Análisis de triples (si existen)
-                    st.markdown("#### 🎯 Combinaciones de 3 Productos")
-                    
-                    triples = []
+                    # Calcular todas las combinaciones de pares
+                    pares = []
                     for productos in canastas_multiples['producto']:
-                        if len(productos) >= 3:
-                            for combo in combinations(sorted(productos), 3):
-                                triples.append(combo)
+                        if len(productos) >= 2:
+                            for combo in combinations(sorted(productos), 2):
+                                pares.append(combo)
                     
-                    if len(triples) > 0:
-                        contador_triples = Counter(triples)
-                        top_triples = contador_triples.most_common(10)
+                    # Contar frecuencia de cada par
+                    contador_pares = Counter(pares)
+                    top_pares = contador_pares.most_common(20)
+                    
+                    if len(top_pares) > 0:
+                        # Selector de cantidad a mostrar
+                        num_mostrar = st.slider(
+                            "Cantidad de combinaciones a mostrar:",
+                            min_value=5,
+                            max_value=min(20, len(top_pares)),
+                            value=min(10, len(top_pares)),
+                            step=5,
+                            key="slider_pares"
+                        )
                         
-                        df_triples = pd.DataFrame(top_triples, columns=['Triple', 'Frecuencia'])
-                        df_triples['Producto 1'] = df_triples['Triple'].apply(lambda x: x[0])
-                        df_triples['Producto 2'] = df_triples['Triple'].apply(lambda x: x[1])
-                        df_triples['Producto 3'] = df_triples['Triple'].apply(lambda x: x[2])
-                        df_triples['Soporte (%)'] = (df_triples['Frecuencia'] / len(canastas_multiples) * 100).round(2)
+                        # Crear dataframe de pares
+                        df_pares = pd.DataFrame(top_pares[:num_mostrar], columns=['Par', 'Frecuencia'])
+                        df_pares['Producto 1'] = df_pares['Par'].apply(lambda x: x[0])
+                        df_pares['Producto 2'] = df_pares['Par'].apply(lambda x: x[1])
                         
-                        tabla_triples = df_triples[['Producto 1', 'Producto 2', 'Producto 3', 'Frecuencia', 'Soporte (%)']].copy()
-                        st.dataframe(tabla_triples, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("No se encontraron transacciones con 3 o más productos diferentes")
-                    
-                    st.divider()
-                    
-                    # RECOMENDACIONES AUTOMÁTICAS
-                    st.markdown("#### 💡 Recomendaciones de Negocio")
-                    
-                    recomendaciones = []
-                    
-                    # Top combo
-                    top_combo = df_pares.iloc[0]
-                    recomendaciones.append({
-                        "tipo": "🏆 COMBO MÁS POPULAR",
-                        "mensaje": f"**{top_combo['Producto 1']}** + **{top_combo['Producto 2']}**",
-                        "detalle": f"Se compran juntos en {top_combo['Frecuencia']} ocasiones ({top_combo['Soporte (%)']}% de las transacciones)",
-                        "accion": "• Crear promoción de combo\n• Colocar productos cercanos físicamente\n• Destacar en marketing"
-                    })
-                    
-                    # Oportunidades de cross-selling
-                    if len(df_pares) >= 3:
-                        recomendaciones.append({
-                            "tipo": "🎯 OPORTUNIDADES DE CROSS-SELLING",
-                            "mensaje": f"Identificadas **{num_mostrar}** combinaciones frecuentes",
-                            "detalle": "Productos con alta afinidad que se pueden potenciar",
-                            "accion": "• Entrenar al personal para sugerir estos productos\n• Crear paquetes promocionales\n• Señalización en punto de venta"
-                        })
-                    
-                    # Análisis de ticket promedio
-                    ticket_simple = canastas[canastas['num_productos'] == 1]['num_productos'].count()
-                    if transacciones_multiples > ticket_simple:
-                        recomendaciones.append({
-                            "tipo": "📈 ESTRATEGIA DE TICKET PROMEDIO",
-                            "mensaje": f"**{pct_multiples:.1f}%** de tus clientes compran múltiples productos",
-                            "detalle": f"Hay {transacciones_multiples:,} transacciones con más de 1 producto",
-                            "accion": "• Incentivos para compras múltiples\n• Descuentos por volumen\n• Bundling estratégico"
-                        })
-                    
-                    # Mostrar recomendaciones
-                    for rec in recomendaciones:
-                        with st.container():
-                            st.markdown(f"**{rec['tipo']}**")
-                            st.success(rec['mensaje'])
-                            st.info(rec['detalle'])
-                            st.markdown(rec['accion'])
-                            st.markdown("---")
-                    
-                    # Análisis por horario
-                    with st.expander("🕐 Ver Análisis de Canastas por Horario", expanded=False):
-                        st.markdown("##### Tamaño de Canasta por Hora del Día")
+                        # Calcular soporte
+                        df_pares['Soporte (%)'] = (df_pares['Frecuencia'] / len(canastas_multiples) * 100).round(2)
                         
-                        df_trans_hora = df_analisis.copy()
-                        df_trans_hora['hora'] = df_trans_hora['fecha_hora'].dt.hour
-                        df_trans_hora['transaccion_id'] = df_trans_hora['fecha_hora'].astype(str)
+                        # Gráfico de barras
+                        df_pares['Combinación'] = df_pares.apply(
+                            lambda row: f"{row['Producto 1'][:20]} + {row['Producto 2'][:20]}", 
+                            axis=1
+                        )
                         
-                        productos_por_hora = df_trans_hora.groupby(['transaccion_id', 'hora']).size().reset_index(name='productos_en_canasta')
-                        promedio_por_hora = productos_por_hora.groupby('hora')['productos_en_canasta'].mean().reset_index()
-                        
-                        fig_hora = go.Figure(data=[
-                            go.Scatter(
-                                x=promedio_por_hora['hora'],
-                                y=promedio_por_hora['productos_en_canasta'],
-                                mode='lines+markers',
-                                line=dict(color='#32CD32', width=3),
-                                marker=dict(size=8),
-                                fill='tozeroy',
-                                fillcolor='rgba(50,205,50,0.2)'
+                        fig_pares = go.Figure(data=[
+                            go.Bar(
+                                y=df_pares['Combinación'][::-1],
+                                x=df_pares['Frecuencia'][::-1],
+                                orientation='h',
+                                marker_color='#1E90FF',
+                                text=df_pares['Frecuencia'][::-1],
+                                textposition='auto',
+                                hovertemplate='<b>%{y}</b><br>Frecuencia: %{x}<extra></extra>'
                             )
                         ])
                         
-                        fig_hora.update_layout(
-                            xaxis_title="Hora del Día",
-                            yaxis_title="Promedio de Productos por Venta",
-                            height=350,
-                            showlegend=False,
-                            xaxis=dict(dtick=2)
+                        fig_pares.update_layout(
+                            title="Top Combinaciones de Productos",
+                            xaxis_title="Frecuencia (veces que se compraron juntos)",
+                            yaxis_title="",
+                            height=max(400, num_mostrar * 40),
+                            showlegend=False
                         )
                         
-                        st.plotly_chart(fig_hora, use_container_width=True)
+                        st.plotly_chart(fig_pares, use_container_width=True)
                         
-                        hora_max_canasta = promedio_por_hora.loc[promedio_por_hora['productos_en_canasta'].idxmax()]
-                        st.info(f"💡 A las **{int(hora_max_canasta['hora'])}:00** los clientes compran más productos por transacción (promedio: {hora_max_canasta['productos_en_canasta']:.2f} productos)")
+                        # Tabla detallada
+                        st.markdown("#### 📋 Tabla Detallada de Combinaciones")
+                        
+                        tabla_pares = df_pares[['Producto 1', 'Producto 2', 'Frecuencia', 'Soporte (%)']].copy()
+                        st.dataframe(tabla_pares, use_container_width=True, hide_index=True)
+                        
+                        st.divider()
+                        
+                        # Análisis de triples
+                        st.markdown("#### 🎯 Combinaciones de 3 Productos")
+                        
+                        triples = []
+                        for productos in canastas_multiples['producto']:
+                            if len(productos) >= 3:
+                                for combo in combinations(sorted(productos), 3):
+                                    triples.append(combo)
+                        
+                        if len(triples) > 0:
+                            contador_triples = Counter(triples)
+                            top_triples = contador_triples.most_common(10)
+                            
+                            df_triples = pd.DataFrame(top_triples, columns=['Triple', 'Frecuencia'])
+                            df_triples['Producto 1'] = df_triples['Triple'].apply(lambda x: x[0])
+                            df_triples['Producto 2'] = df_triples['Triple'].apply(lambda x: x[1])
+                            df_triples['Producto 3'] = df_triples['Triple'].apply(lambda x: x[2])
+                            df_triples['Soporte (%)'] = (df_triples['Frecuencia'] / len(canastas_multiples) * 100).round(2)
+                            
+                            tabla_triples = df_triples[['Producto 1', 'Producto 2', 'Producto 3', 'Frecuencia', 'Soporte (%)']].copy()
+                            st.dataframe(tabla_triples, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No se encontraron transacciones con 3 o más productos diferentes")
+                        
+                        st.divider()
+                        
+                        # RECOMENDACIONES AUTOMÁTICAS
+                        st.markdown("#### 💡 Recomendaciones de Negocio")
+                        
+                        top_combo = df_pares.iloc[0]
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.success(f"**🏆 COMBO MÁS POPULAR**")
+                            st.markdown(f"**{top_combo['Producto 1']}** + **{top_combo['Producto 2']}**")
+                            st.info(f"Se compran juntos en {top_combo['Frecuencia']} ocasiones ({top_combo['Soporte (%)']}%)")
+                            st.markdown("**Acciones sugeridas:**\n- Crear promoción de combo\n- Colocar productos cercanos\n- Destacar en marketing")
+                        
+                        with col2:
+                            st.success(f"**🎯 OPORTUNIDADES**")
+                            st.markdown(f"Identificadas **{num_mostrar}** combinaciones frecuentes")
+                            st.info("Productos con alta afinidad que se pueden potenciar")
+                            st.markdown("**Acciones sugeridas:**\n- Entrenar al personal\n- Crear paquetes promocionales\n- Señalización en PDV")
+                        
+                        # Análisis por horario
+                        with st.expander("🕐 Ver Análisis de Canastas por Horario", expanded=False):
+                            st.markdown("##### Tamaño de Canasta por Hora del Día")
+                            
+                            df_trans_hora = df_transacciones_filtrado.copy()
+                            df_trans_hora['hora'] = df_trans_hora['fecha_hora'].dt.hour
+                            df_trans_hora['transaccion_id'] = df_trans_hora['fecha_hora'].astype(str)
+                            
+                            productos_por_hora = df_trans_hora.groupby(['transaccion_id', 'hora']).size().reset_index(name='productos_en_canasta')
+                            promedio_por_hora = productos_por_hora.groupby('hora')['productos_en_canasta'].mean().reset_index()
+                            
+                            fig_hora = go.Figure(data=[
+                                go.Scatter(
+                                    x=promedio_por_hora['hora'],
+                                    y=promedio_por_hora['productos_en_canasta'],
+                                    mode='lines+markers',
+                                    line=dict(color='#32CD32', width=3),
+                                    marker=dict(size=8),
+                                    fill='tozeroy',
+                                    fillcolor='rgba(50,205,50,0.2)'
+                                )
+                            ])
+                            
+                            fig_hora.update_layout(
+                                xaxis_title="Hora del Día",
+                                yaxis_title="Promedio de Productos por Venta",
+                                height=350,
+                                showlegend=False,
+                                xaxis=dict(dtick=2)
+                            )
+                            
+                            st.plotly_chart(fig_hora, use_container_width=True)
+                            
+                            hora_max_canasta = promedio_por_hora.loc[promedio_por_hora['productos_en_canasta'].idxmax()]
+                            st.info(f"💡 A las **{int(hora_max_canasta['hora'])}:00** los clientes compran más productos por transacción (promedio: {hora_max_canasta['productos_en_canasta']:.2f} productos)")
+                    
+                    else:
+                        st.info("No se encontraron suficientes pares de productos para analizar")
                 
-                else:
-                    st.info("No se encontraron suficientes pares de productos para analizar")
+                with subtab2:
+                    st.markdown("#### 🔍 Buscar Combinaciones por Producto")
+                    st.caption("Selecciona un producto para ver con qué otros productos se compra frecuentemente")
+                    
+                    # Selector de producto
+                    productos_en_canastas = sorted(df_transacciones_filtrado['producto'].unique())
+                    producto_buscar = st.selectbox(
+                        "Selecciona un producto:",
+                        productos_en_canastas,
+                        help="Elige un producto para ver sus combinaciones",
+                        key="selector_producto_canasta"
+                    )
+                    
+                    if producto_buscar:
+                        # Filtrar pares que contienen el producto seleccionado
+                        pares_producto = []
+                        for productos in canastas_multiples['producto']:
+                            if producto_buscar in productos and len(productos) >= 2:
+                                for otro_producto in productos:
+                                    if otro_producto != producto_buscar:
+                                        pares_producto.append(otro_producto)
+                        
+                        if len(pares_producto) > 0:
+                            contador_producto = Counter(pares_producto)
+                            top_combinaciones = contador_producto.most_common(15)
+                            
+                            df_combinaciones = pd.DataFrame(top_combinaciones, columns=['Producto Combinado', 'Frecuencia'])
+                            df_combinaciones['Soporte (%)'] = (df_combinaciones['Frecuencia'] / len(canastas_multiples) * 100).round(2)
+                            
+                            # Métricas del producto
+                            col1, col2, col3 = st.columns(3)
+                            
+                            total_apariciones = len([p for p in canastas_multiples['producto'] if producto_buscar in p])
+                            
+                            with col1:
+                                st.metric("🛒 Aparece en Transacciones", f"{total_apariciones:,}")
+                            with col2:
+                                st.metric("🔗 Productos Únicos Combinados", f"{len(contador_producto)}")
+                            with col3:
+                                combo_mas_frecuente = df_combinaciones.iloc[0]['Producto Combinado']
+                                st.metric("⭐ Combinación #1", combo_mas_frecuente[:30])
+                            
+                            st.divider()
+                            
+                            # Gráfico de barras
+                            num_mostrar_busqueda = st.slider(
+                                "Cantidad a mostrar:",
+                                min_value=5,
+                                max_value=min(15, len(df_combinaciones)),
+                                value=min(10, len(df_combinaciones)),
+                                step=5,
+                                key="slider_busqueda"
+                            )
+                            
+                            df_combinaciones_plot = df_combinaciones.head(num_mostrar_busqueda)
+                            
+                            fig_combinaciones = go.Figure(data=[
+                                go.Bar(
+                                    y=df_combinaciones_plot['Producto Combinado'][::-1],
+                                    x=df_combinaciones_plot['Frecuencia'][::-1],
+                                    orientation='h',
+                                    marker_color='#32CD32',
+                                    text=df_combinaciones_plot['Frecuencia'][::-1],
+                                    textposition='auto',
+                                    hovertemplate='<b>%{y}</b><br>Frecuencia: %{x}<br>Soporte: %{customdata:.2f}%<extra></extra>',
+                                    customdata=df_combinaciones_plot['Soporte (%)'][::-1]
+                                )
+                            ])
+                            
+                            fig_combinaciones.update_layout(
+                                title=f"Productos que se compran con '{producto_buscar}'",
+                                xaxis_title="Frecuencia",
+                                yaxis_title="",
+                                height=max(400, num_mostrar_busqueda * 40),
+                                showlegend=False
+                            )
+                            
+                            st.plotly_chart(fig_combinaciones, use_container_width=True)
+                            
+                            # Tabla detallada
+                            st.markdown("#### 📋 Tabla Detallada")
+                            st.dataframe(df_combinaciones_plot, use_container_width=True, hide_index=True)
+                            
+                            # Recomendaciones específicas
+                            st.markdown("#### 💡 Recomendaciones Específicas")
+                            
+                            top_3 = df_combinaciones.head(3)
+                            
+                            st.success(f"**Productos Top para Cross-Selling con '{producto_buscar}':**")
+                            for idx, row in top_3.iterrows():
+                                st.markdown(f"• **{row['Producto Combinado']}** - {row['Frecuencia']} veces ({row['Soporte (%)']}% de las transacciones)")
+                            
+                            st.info(f"💼 **Estrategia sugerida:** Cuando un cliente compre '{producto_buscar}', el personal debería sugerir estos productos para incrementar el ticket promedio.")
+                        
+                        else:
+                            st.warning(f"No se encontraron combinaciones para el producto '{producto_buscar}' en el período seleccionado.")
         
+        # ========== TAB 6: FECHAS ESPECIALES ==========
+        with tab6:
+            st.markdown("### 🎉 Análisis de Fechas Especiales")
+            st.caption("Compara las ventas de días específicos vs el promedio general")
+            
+            # Selector de fecha
+            st.markdown("#### 📅 Selecciona una Fecha para Analizar")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Obtener años disponibles
+                años_disponibles = sorted(df_temp['año'].unique())
+                año_especial = st.selectbox("Año:", años_disponibles, key="año_especial")
+            
+            with col2:
+                # Obtener meses con datos para ese año
+                meses_disponibles_año = sorted(df_temp[df_temp['año'] == año_especial]['mes_num'].unique())
+                mes_especial = st.selectbox(
+                    "Mes:",
+                    meses_disponibles_año,
+                    format_func=lambda x: meses_español[x],
+                    key="mes_especial"
+                )
+            
+            # Obtener días disponibles para ese mes/año
+            df_mes_especial = df_temp[(df_temp['año'] == año_especial) & (df_temp['mes_num'] == mes_especial)]
+            dias_disponibles = sorted(df_mes_especial['dia_mes'].unique())
+            
+            dia_especial = st.selectbox("Día:", dias_disponibles, key="dia_especial")
+            
+            # Botón para analizar
+            if st.button("🔍 Analizar Fecha", type="primary"):
+                fecha_seleccionada = pd.Timestamp(year=año_especial, month=mes_especial, day=dia_especial).date()
+                
+                st.markdown(f"### 📊 Análisis del {dia_especial} de {meses_español[mes_especial]} de {año_especial}")
+                
+                # Filtrar datos de la fecha especial
+                df_fecha_especial = df_temp[df_temp['fecha'] == fecha_seleccionada]
+                
+                if df_fecha_especial.empty:
+                    st.warning("No hay datos disponibles para esta fecha")
+                else:
+                    # Calcular ventas de la fecha especial por producto
+                    ventas_fecha = df_fecha_especial.groupby('producto')['cantidad'].sum().reset_index()
+                    ventas_fecha.columns = ['producto', 'cantidad_fecha']
+                    
+                    # Calcular promedio general (excluyendo la fecha especial)
+                    df_sin_fecha = df_temp[df_temp['fecha'] != fecha_seleccionada]
+                    
+                    # Calcular promedio diario por producto
+                    dias_totales = df_sin_fecha['fecha'].nunique()
+                    ventas_promedio = df_sin_fecha.groupby('producto')['cantidad'].sum().reset_index()
+                    ventas_promedio['cantidad_promedio'] = ventas_promedio['cantidad'] / dias_totales
+                    ventas_promedio = ventas_promedio[['producto', 'cantidad_promedio']]
+                    
+                    # Combinar datos
+                    comparacion = ventas_fecha.merge(ventas_promedio, on='producto', how='outer').fillna(0)
+                    comparacion['diferencia'] = comparacion['cantidad_fecha'] - comparacion['cantidad_promedio']
+                    comparacion['variacion_pct'] = ((comparacion['cantidad_fecha'] - comparacion['cantidad_promedio']) / 
+                                                     comparacion['cantidad_promedio'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+                    
+                    # Filtrar productos con ventas significativas
+                    comparacion_filtrada = comparacion[
+                        (comparacion['cantidad_fecha'] > 0) | (comparacion['cantidad_promedio'] > 1)
+                    ].copy()
+                    
+                    # Métricas generales
+                    st.markdown("#### 📈 Métricas Generales del Día")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    total_fecha = comparacion_filtrada['cantidad_fecha'].sum()
+                    total_promedio = comparacion_filtrada['cantidad_promedio'].sum()
+                    variacion_total = ((total_fecha - total_promedio) / total_promedio * 100) if total_promedio > 0 else 0
+                    productos_mas_vendidos = len(comparacion_filtrada[comparacion_filtrada['variacion_pct'] > 20])
+                    
+                    with col1:
+                        st.metric("📦 Ventas del Día", f"{int(total_fecha):,} unidades")
+                    with col2:
+                        st.metric("📊 Promedio Diario", f"{int(total_promedio):,} unidades")
+                    with col3:
+                        st.metric("📈 Variación Total", f"{variacion_total:+.1f}%", 
+                                 delta=f"{int(total_fecha - total_promedio):+,} unidades")
+                    with col4:
+                        st.metric("🔥 Productos Destacados", f"{productos_mas_vendidos}", 
+                                 help="Productos con +20% de ventas vs promedio")
+                    
+                    st.divider()
+                    
+                    # Top productos que más subieron
+                    st.markdown("#### 🚀 Productos que MÁS Aumentaron")
+                    
+                    top_subida = comparacion_filtrada.nlargest(15, 'variacion_pct')
+                    top_subida = top_subida[top_subida['cantidad_fecha'] > 0]
+                    
+                    if not top_subida.empty:
+                        num_mostrar_subida = st.slider(
+                            "Cantidad de productos a mostrar:",
+                            min_value=5,
+                            max_value=min(15, len(top_subida)),
+                            value=min(10, len(top_subida)),
+                            step=5,
+                            key="slider_subida"
+                        )
+                        
+                        top_subida_plot = top_subida.head(num_mostrar_subida)
+                        
+                        # Crear gráfico comparativo
+                        fig_comparacion = go.Figure()
+                        
+                        fig_comparacion.add_trace(go.Bar(
+                            name='Promedio Diario',
+                            y=top_subida_plot['producto'][::-1],
+                            x=top_subida_plot['cantidad_promedio'][::-1],
+                            orientation='h',
+                            marker_color='lightgray',
+                            text=top_subida_plot['cantidad_promedio'][::-1].round(1),
+                            textposition='auto'
+                        ))
+                        
+                        fig_comparacion.add_trace(go.Bar(
+                            name=f'{dia_especial}/{mes_especial}/{año_especial}',
+                            y=top_subida_plot['producto'][::-1],
+                            x=top_subida_plot['cantidad_fecha'][::-1],
+                            orientation='h',
+                            marker_color='#32CD32',
+                            text=top_subida_plot['cantidad_fecha'][::-1],
+                            textposition='auto'
+                        ))
+                        
+                        fig_comparacion.update_layout(
+                            title="Comparación: Fecha Especial vs Promedio",
+                            xaxis_title="Unidades Vendidas",
+                            yaxis_title="",
+                            height=max(400, num_mostrar_subida * 50),
+                            barmode='group',
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
+                        
+                        st.plotly_chart(fig_comparacion, use_container_width=True)
+                        
+                        # Tabla detallada
+                        st.markdown("#### 📋 Tabla Detallada de Incrementos")
+                        
+                        tabla_subida = top_subida_plot[['producto', 'cantidad_promedio', 'cantidad_fecha', 'diferencia', 'variacion_pct']].copy()
+                        tabla_subida.columns = ['Producto', 'Promedio Diario', 'Ventas en Fecha', 'Diferencia', 'Variación (%)']
+                        tabla_subida['Promedio Diario'] = tabla_subida['Promedio Diario'].round(1)
+                        tabla_subida['Ventas en Fecha'] = tabla_subida['Ventas en Fecha'].astype(int)
+                        tabla_subida['Diferencia'] = tabla_subida['Diferencia'].apply(lambda x: f"{x:+.1f}")
+                        tabla_subida['Variación (%)'] = tabla_subida['Variación (%)'].apply(lambda x: f"{x:+.1f}%")
+                        
+                        st.dataframe(tabla_subida, use_container_width=True, hide_index=True)
+                        
+                        st.divider()
+                        
+                        # Productos que bajaron
+                        st.markdown("#### 📉 Productos que Disminuyeron")
+                        
+                        top_bajada = comparacion_filtrada.nsmallest(10, 'variacion_pct')
+                        top_bajada = top_bajada[top_bajada['cantidad_promedio'] > 1]
+                        
+                        if not top_bajada.empty:
+                            tabla_bajada = top_bajada[['producto', 'cantidad_promedio', 'cantidad_fecha', 'diferencia', 'variacion_pct']].copy()
+                            tabla_bajada.columns = ['Producto', 'Promedio Diario', 'Ventas en Fecha', 'Diferencia', 'Variación (%)']
+                            tabla_bajada['Promedio Diario'] = tabla_bajada['Promedio Diario'].round(1)
+                            tabla_bajada['Ventas en Fecha'] = tabla_bajada['Ventas en Fecha'].astype(int)
+                            tabla_bajada['Diferencia'] = tabla_bajada['Diferencia'].apply(lambda x: f"{x:+.1f}")
+                            tabla_bajada['Variación (%)'] = tabla_bajada['Variación (%)'].apply(lambda x: f"{x:+.1f}%")
+                            
+                            st.dataframe(tabla_bajada, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No se encontraron productos con disminución significativa")
+                        
+                        st.divider()
+                        
+                        # Insights y recomendaciones
+                        st.markdown("#### 💡 Insights y Recomendaciones")
+                        
+                        # Identificar el producto con mayor incremento absoluto
+                        producto_estrella = top_subida.iloc[0]
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.success("**🌟 PRODUCTO ESTRELLA DEL DÍA**")
+                            st.markdown(f"**{producto_estrella['producto']}**")
+                            st.info(f"Incremento del **{producto_estrella['variacion_pct']:.1f}%**\n\n"
+                                   f"Vendió **{int(producto_estrella['cantidad_fecha'])}** unidades vs **{producto_estrella['cantidad_promedio']:.1f}** promedio")
+                            
+                        with col2:
+                            st.success("**📊 RESUMEN GENERAL**")
+                            productos_con_incremento = len(comparacion_filtrada[comparacion_filtrada['variacion_pct'] > 0])
+                            pct_productos_incremento = (productos_con_incremento / len(comparacion_filtrada) * 100) if len(comparacion_filtrada) > 0 else 0
+                            st.info(f"**{productos_con_incremento}** productos ({pct_productos_incremento:.1f}%) tuvieron incremento en ventas\n\n"
+                                   f"Ventas totales {variacion_total:+.1f}% vs promedio")
+                        
+                        # Recomendaciones estratégicas
+                        st.markdown("---")
+                        st.markdown("**📋 Acciones Recomendadas para Fechas Similares:**")
+                        
+                        if variacion_total > 20:
+                            st.markdown("✅ **Fecha de alta demanda detectada**")
+                            st.markdown("• Aumentar stock de los productos destacados")
+                            st.markdown("• Considerar promociones especiales")
+                            st.markdown("• Reforzar personal en horarios pico")
+                        elif variacion_total < -10:
+                            st.markdown("⚠️ **Fecha de baja demanda detectada**")
+                            st.markdown("• Revisar estrategia de comunicación")
+                            st.markdown("• Considerar promociones para activar ventas")
+                        else:
+                            st.markdown("📊 **Fecha con comportamiento normal**")
+                            st.markdown("• Mantener niveles de stock habituales")
+                        
+                        # Productos para preparar con anticipación
+                        productos_preparar = top_subida.head(5)
+                        st.markdown(f"\n**🎯 Top 5 Productos para Preparar:**")
+                        for idx, row in productos_preparar.iterrows():
+                            st.markdown(f"• **{row['producto']}**: preparar ~{int(row['cantidad_fecha'])} unidades ({row['variacion_pct']:+.0f}% vs promedio)")
+                        
+                    else:
+                        st.info("No hay datos suficientes para mostrar productos destacados en esta fecha")
+                    
+                    # Análisis por hora del día especial
+                    with st.expander("🕐 Ver Análisis por Hora de la Fecha Especial", expanded=False):
+                        st.markdown("##### Distribución de Ventas por Hora")
+                        
+                        ventas_hora_especial = df_fecha_especial.groupby('hora_num')['cantidad'].sum().reset_index()
+                        ventas_hora_promedio = df_sin_fecha.groupby('hora_num')['cantidad'].sum() / dias_totales
+                        ventas_hora_promedio = ventas_hora_promedio.reset_index()
+                        ventas_hora_promedio.columns = ['hora_num', 'cantidad_promedio']
+                        
+                        comparacion_hora = ventas_hora_especial.merge(ventas_hora_promedio, on='hora_num', how='outer').fillna(0)
+                        
+                        fig_hora_especial = go.Figure()
+                        
+                        fig_hora_especial.add_trace(go.Scatter(
+                            x=comparacion_hora['hora_num'],
+                            y=comparacion_hora['cantidad_promedio'],
+                            mode='lines+markers',
+                            name='Promedio',
+                            line=dict(color='lightgray', width=2),
+                            marker=dict(size=6)
+                        ))
+                        
+                        fig_hora_especial.add_trace(go.Scatter(
+                            x=comparacion_hora['hora_num'],
+                            y=comparacion_hora['cantidad'],
+                            mode='lines+markers',
+                            name='Fecha Especial',
+                            line=dict(color='#FFD700', width=3),
+                            marker=dict(size=8),
+                            fill='tonexty',
+                            fillcolor='rgba(255,215,0,0.2)'
+                        ))
+                        
+                        fig_hora_especial.update_layout(
+                            xaxis_title="Hora del Día",
+                            yaxis_title="Unidades Vendidas",
+                            height=400,
+                            xaxis=dict(dtick=2),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
+                        
+                        st.plotly_chart(fig_hora_especial, use_container_width=True)
+                        
+                        hora_pico_fecha = comparacion_hora.loc[comparacion_hora['cantidad'].idxmax(), 'hora_num']
+                        cantidad_hora_pico = comparacion_hora['cantidad'].max()
+                        st.info(f"💡 La hora pico en esta fecha fue a las **{int(hora_pico_fecha)}:00** con **{int(cantidad_hora_pico)}** unidades vendidas")
+    
     else:
         st.warning("⚠️ No hay datos disponibles para el período seleccionado.")
 
