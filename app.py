@@ -1327,24 +1327,7 @@ try:
                     
                     # Mostrar top 10
                     st.dataframe(ranking_picadas.head(10), use_container_width=True, hide_index=True)
-
-                    st.markdown("---")
-                    col_download1, col_download2 = st.columns([3, 1])
-                    # Opción adicional: descargar datos completos
-                    with col_download1:
-                        # Preparar datos completos con más detalle
-                        datos_completos = bcg_data[['producto', 'cantidad', 'participacion', 'tasa_crecimiento', 'categoria']].copy()
-                        datos_completos.columns = ['Producto', 'Unidades Vendidas', 'Participación (%)', 'Crecimiento (%)', 'Categoría BCG']
-                        csv_completo = datos_completos.to_csv(index=False, encoding='utf-8-sig')
-                        
-                        st.download_button(
-                            label="📊 Descargar Análisis Completo (CSV)",
-                            data=csv_completo,
-                            file_name=f"analisis_completo_{titulo_periodo.replace(' ', '_')}.csv",
-                            mime="text/csv",
-                            help="Descarga todos los productos con análisis BCG",
-                            use_container_width=True
-                        )
+                    
                     with st.expander("📋 Ver Ranking Completo", expanded=False):
                         st.dataframe(ranking_picadas, use_container_width=True, hide_index=True)
                     
@@ -1831,5 +1814,4 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
-
 
