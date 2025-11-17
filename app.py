@@ -1327,6 +1327,9 @@ try:
                     
                     # Mostrar top 10
                     st.dataframe(ranking_picadas.head(10), use_container_width=True, hide_index=True)
+
+                    st.markdown("---")
+                    col_download1, col_download2 = st.columns([3, 1])
                     # Opción adicional: descargar datos completos
                     with col_download1:
                         # Preparar datos completos con más detalle
@@ -1828,4 +1831,5 @@ try:
 except Exception as e:
     st.error(f"❌ Error al cargar los datos: {e}")
     st.info("Verifica que la URL del CSV sea correcta y que el archivo esté accesible.")
+
 
